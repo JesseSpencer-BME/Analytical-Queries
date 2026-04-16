@@ -30,8 +30,8 @@ select
   order_sequence.cust_order_sequence,
   last_payment_received as last_payment_received_date,
   DATEDIFF(CURDATE(), last_payment_received) AS days_since_payment,
-  a.past_due_amount,
-  a.past_due_days,
+  apd.amount as past_due_amount,
+  datediff(current_date(),apd.due_date) as days_past_due,
   -initial_payments.initial_payment / a.total as ip_pct
 from financials.v_customer_entity_summary c
   inner join bme.agreements a on c.entity_id = a.customer_id
@@ -40,6 +40,7 @@ from financials.v_customer_entity_summary c
   left join financials.customer_supplemental cs on c.entity_id = cs.customer_id
   left join bme.customer_signups csu on cs.customer_signup_id = csu.id
   left join financials.v_ledger_agreement_summary las on a.id = las.agreement_id
+  left join bme.agreements_past_due apd on a.id = apd.agreement_id
   left join (
   select
   customer_id,
