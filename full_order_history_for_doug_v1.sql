@@ -28,7 +28,9 @@ select
   initial_payments.initial_payment,
   order_sequence.cust_order_sequence,
   last_payment_received as last_payment_received_date,
-  DATEDIFF(CURDATE(), last_payment_received) AS days_since_payment
+  DATEDIFF(CURDATE(), last_payment_received) AS days_since_payment,
+  a.past_due_amount,
+  a.past_due_days
 from financials.v_customer_entity_summary c
   inner join bme.agreements a on c.entity_id = a.customer_id
   left join financials.v_scoring_clarity_score cc on c.entity_id = cc.customer_id
