@@ -1,3 +1,4 @@
+with base_data as(
 select   
   concat(c.firstname,' ',c.lastname) as customer_name,
   a.date_created as agreement_created,
@@ -30,7 +31,8 @@ select
   last_payment_received as last_payment_received_date,
   DATEDIFF(CURDATE(), last_payment_received) AS days_since_payment,
   a.past_due_amount,
-  a.past_due_days
+  a.past_due_days,
+  initial_payments.initial_payment / a.total as ip_pct
 from financials.v_customer_entity_summary c
   inner join bme.agreements a on c.entity_id = a.customer_id
   left join financials.v_scoring_clarity_score cc on c.entity_id = cc.customer_id
@@ -76,3 +78,18 @@ FROM
 on a.id = order_sequence.id  
 -- where date(a.date_created) >= CURRENT_DATE - INTERVAL 7 DAY
 order by a.id desc
+  ),
+ip_bands as (
+select base_data.*,
+  case 
+    when ip_pct between .095 and .105 then '10_pct'
+    when ip_pct between .245 and .255 then '25_pct'
+    when ip_pct between .495 and .505 then '50_pct'
+  end as ip_band
+  from base_data
+)
+select ip_bands.*,
+  case when ip_band is null then 'fast_track'
+  else 'scored' 
+  end as fast_track_status
+from ip_bands
