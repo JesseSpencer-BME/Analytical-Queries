@@ -90,6 +90,6 @@ select base_data.*,
 )
 select ip_bands.*,
   case when ip_band is null then 'fast_track'
-  else 'scored' 
+  else ip_band 
   end as fast_track_status
 from ip_bands
