@@ -37,7 +37,8 @@ select
   TIMESTAMPDIFF(MONTH, c.start_date, a.date_created) as tenure_months_at_order,
   1 as total_orders,
   case when apd.amount>0 then 1 else 0 end as orders_past_due,
-  c.employment_status
+  c.employment_status,
+  bank_accounts.bank_accounts
 from financials.v_customer_entity_summary c
   inner join bme.agreements a on c.entity_id = a.customer_id
   left join financials.v_scoring_clarity_score cc on c.entity_id = cc.customer_id
@@ -47,42 +48,58 @@ from financials.v_customer_entity_summary c
   left join financials.v_ledger_agreement_summary las on a.id = las.agreement_id
   left join bme.agreements_past_due apd on a.id = apd.agreement_id
   left join (
-  select
-  customer_id,
-  c.email,
-  sum(current_balance) as current_balance,
-  count(1)
-from
-  financials.v_ledger_agreement_summary las
-  inner join bme.agreements a on las.agreement_id = a.id
-  inner join bme.customer_entity c on a.customer_id = c.entity_id
-group by
-  customer_id  
-  ) balances
+    select
+        customer_id,
+        c.email,
+        sum(current_balance) as current_balance,
+        count(1)
+      from
+        financials.v_ledger_agreement_summary las
+        inner join bme.agreements a on las.agreement_id = a.id
+        inner join bme.customer_entity c on a.customer_id = c.entity_id
+      group by
+        customer_id  
+    ) balances
 on a.customer_id = balances.customer_id  
+  
 left join (
     select agreement_id, round(sum(amount),2) as initial_payment from bme.ledger
-  where status = 'initial_payment'
-  and cancelled_at is null
-  group by agreement_id  
+      where status = 'initial_payment'
+      and cancelled_at is null
+      group by agreement_id  
   ) initial_payments
   on a.id = initial_payments.agreement_id
 
   left join (
-  SELECT
-  customer_id,
-  id,
-  ROW_NUMBER() OVER (
-    PARTITION BY
-      customer_id
-    ORDER BY
-      id
-  ) AS cust_order_sequence
-FROM
-  bme.agreements   
-  ) order_sequence
-on a.id = order_sequence.id  
--- where date(a.date_created) >= CURRENT_DATE - INTERVAL 7 DAY
+    SELECT
+        customer_id,
+        id,
+        ROW_NUMBER() OVER (
+          PARTITION BY
+            customer_id
+          ORDER BY
+            id
+        ) AS cust_order_sequence
+      FROM
+        bme.agreements   
+    ) order_sequence
+  on a.id = order_sequence.id  
+-- Get Bank Account Data
+  left join (
+    select 
+      c.entity_id as customer_id, 
+      group_concat(distinct bank_account_number) as bank_accounts,
+      count(1) as account_count 
+    from bme.customer_entity c
+      inner join bme.employee_manifest em
+        on c.entity_id = em.customer_id
+      inner join bme.customer_bank cb
+        on em.employee_id = cb.employee_id
+        and em.employer_id = cb.employer_id
+    group by c.entity_id
+  
+  ) bank_accounts
+  on a.customer_id = bank_accounts.customer_id  
 order by a.id desc
   ),
 ip_bands as (
