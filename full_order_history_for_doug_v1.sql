@@ -32,7 +32,11 @@ select
   DATEDIFF(CURDATE(), last_payment_received) AS days_since_payment,
   apd.amount as past_due_amount,
   datediff(current_date(),apd.due_date) as days_past_due,
-  -initial_payments.initial_payment / a.total as ip_pct
+  -initial_payments.initial_payment / a.total as ip_pct,
+  c.start_date as employee_start_date,
+  TIMESTAMPDIFF(MONTH, c.start_date, a.date_created) as tenure_months_at_order,
+  1 as total_orders,
+  case when apd.amount<0 then 1 else 0 end as orders_past_due  
 from financials.v_customer_entity_summary c
   inner join bme.agreements a on c.entity_id = a.customer_id
   left join financials.v_scoring_clarity_score cc on c.entity_id = cc.customer_id
