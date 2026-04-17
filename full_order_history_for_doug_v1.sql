@@ -36,7 +36,8 @@ select
   c.start_date as employee_start_date,
   TIMESTAMPDIFF(MONTH, c.start_date, a.date_created) as tenure_months_at_order,
   1 as total_orders,
-  case when apd.amount>0 then 1 else 0 end as orders_past_due  
+  case when apd.amount>0 then 1 else 0 end as orders_past_due,
+  c.employment_status
 from financials.v_customer_entity_summary c
   inner join bme.agreements a on c.entity_id = a.customer_id
   left join financials.v_scoring_clarity_score cc on c.entity_id = cc.customer_id
@@ -94,7 +95,13 @@ select base_data.*,
   from base_data
 )
 select ip_bands.*,
-  case when ip_band is null then 'fast_track'
-  else ip_band 
-  end as fast_track_status
+  case 
+    when ip_band is null then 'fast_track'
+    else ip_band 
+  end as fast_track_status,
+  case 
+    when tenure_months_at_order between 0 and 6 then '0-6'
+    when tenure_months_at_order between 7 and 9 then '7-9'
+    when tenure_months_at_order between 10 and 12 then '10-12'
+    else '12+' end as tenure_band_at_order
 from ip_bands
