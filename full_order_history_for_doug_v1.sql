@@ -8,6 +8,8 @@ select
   c.employment_schedule as ft_pt,
   TIMESTAMPDIFF(MONTH, c.start_date, NOW()) as tenure_months,  
   cc.clarity_score,
+  cc.clear_credit_risk_score,
+  cc.vantage_4_score,
   a.magento_order_number,
   a.status as agreement_status,
   c.credit_limit as spending_limit,
@@ -122,5 +124,14 @@ select ip_bands.*,
     when tenure_months_at_order between 0 and 6 then '0-6'
     when tenure_months_at_order between 7 and 9 then '7-9'
     when tenure_months_at_order between 10 and 12 then '10-12'
-    else '12+' end as tenure_band_at_order
+    else '12+' end as tenure_band_at_order,
+  case
+    when scoring_model_type = 'paystub_model' then 'paystub_model'
+    when clear_credit_risk_score is null then 'base_model - no score required'
+    when clear_credit_risk_score <= 500 then '0-500'
+    when clear_credit_risk_score <= 550 then '501-550'
+    when clear_credit_risk_score <= 551 then '551-575'
+    when clear_credit_risk_score <= 576 then '576-600'
+    when clear_credit_risk_score > 600 then '600+'
+  end as clear_credit_risk_band  
 from ip_bands
