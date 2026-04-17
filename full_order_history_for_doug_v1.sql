@@ -38,6 +38,7 @@ select
   1 as total_orders,
   case when apd.amount>0 then 1 else 0 end as orders_past_due,
   c.employment_status,
+  bank_accounts.bank_routings,
   bank_accounts.bank_accounts
 from financials.v_customer_entity_summary c
   inner join bme.agreements a on c.entity_id = a.customer_id
@@ -88,6 +89,7 @@ left join (
   left join (
     select 
       c.entity_id as customer_id, 
+      group_concat(distinct(bank_routing_number)) as bank_routings,
       group_concat(distinct bank_account_number) as bank_accounts,
       count(1) as account_count 
     from bme.customer_entity c
