@@ -130,8 +130,8 @@ select ip_bands.*,
     when clear_credit_risk_score is null then 'base_model - no score required'
     when clear_credit_risk_score <= 500 then '0-500'
     when clear_credit_risk_score <= 550 then '501-550'
-    when clear_credit_risk_score <= 551 then '551-575'
-    when clear_credit_risk_score <= 576 then '576-600'
+    when clear_credit_risk_score <= 575 then '551-575'
+    when clear_credit_risk_score <= 600 then '576-600'
     when clear_credit_risk_score > 600 then '600+'
   end as clear_credit_risk_band  
 from ip_bands
