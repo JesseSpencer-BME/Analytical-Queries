@@ -135,5 +135,14 @@ select ip_bands.*,
     when clear_credit_risk_score <= 575 then '551-575'
     when clear_credit_risk_score <= 600 then '576-600'
     when clear_credit_risk_score > 600 then '600+'
-  end as clear_credit_risk_band  
+  end as clear_credit_risk_band,
+  case
+    when days_since_payment > 120 then '121+'
+    when days_since_payment > 90 then '91-120'
+    when days_since_payment > 60 then '61-90'
+    when days_since_payment > 30 then '31-60'
+    when days_since_payment > 15 then '15-30'
+    when days_since_payment > 0 then '0-30'
+    else 'no payments made'
+  end as days_since_payment_band  
 from ip_bands
