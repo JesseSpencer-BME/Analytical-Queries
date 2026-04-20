@@ -13,7 +13,7 @@ select
   a.magento_order_number,
   a.status as agreement_status,
   c.credit_limit as spending_limit,
-  c.credit_limit - balances.current_balance as spending_limit_remaining,
+  c.credit_limit - balances.current_balance as customer_spending_limit_remaining,
   a.total as purchase_amount, 
   a.term as term,
   a.payments as payment_amt,
@@ -21,7 +21,7 @@ select
   c.total_orders-1 as number_prior_purchases,
   date(c.created_at) as registered_date,
   c.customer_score as bme_score,
-  balances.current_balance,
+  balances.current_balance as customer_current_balance,
   las.current_balance as agreement_current_balance,
   las.last_payment_received,
   a.id as agreement_id,
@@ -137,6 +137,7 @@ select ip_bands.*,
     when clear_credit_risk_score > 600 then '600+'
   end as clear_credit_risk_band,
   case
+    when agreement_created > date_sub(curdate(), INTERVAL 15 DAY) then 'agreement within last 15 days'
     when days_since_payment > 120 then '121+'
     when days_since_payment > 90 then '91-120'
     when days_since_payment > 60 then '61-90'
