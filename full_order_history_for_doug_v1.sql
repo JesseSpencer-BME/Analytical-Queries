@@ -22,6 +22,8 @@ select
   date(c.created_at) as registered_date,
   c.customer_score as bme_score,
   balances.current_balance,
+  las.current_balance as agreement_current_balance,
+  las.last_payment_received,
   a.id as agreement_id,
   c.entity_id as customer_id,
   e.scoring_model_type,
