@@ -162,7 +162,7 @@ select base_data.*,
     when ip_pct between .495 and .505 then '50_pct'
   end as ip_band
   from base_data
-), all_data as(
+), bands as(
 select ip_bands.*,
   case 
     when ip_band is null then 'fast_track'
@@ -196,8 +196,8 @@ select ip_bands.*,
   date_add(agreement_created, interval (cycle_max_days + deduction_due_days) day) as agreement_latest_start,
   date_add(date_add(agreement_created, interval (cycle_max_days + deduction_due_days) day), interval term_months month) as agreement_latest_end
 from ip_bands
-  )
-select all_data.*,
+  ), all_data as(
+select bands.*,
   case 
     when agreement_latest_end < date(financials.cst(sysdate()))
       then 'Agreement Period Complete'
@@ -219,7 +219,21 @@ select all_data.*,
 END AS pct_agreement_duration_elapsed,
   -(payments+adjustments) / order_total as pct_order_paid_off,
   case 
-    when go_live_date >= (date(sysdate()) - interval 30 day) then 'employer go-live within last 30 days'
+    when go_live_date < (date(sysdate()) - interval 30 day) then 'employer go-live within last 30 days'
     else 'employer go-live over 30 days ago'
   end as employer_go_live_category
- from all_data
+ from bands)
+select all_data.*,
+  case 
+    when employment_status = 'terminated' then agreement_current_balance
+    when agreement_period_evaluation = 'Agreement Period Complete' then agreement_current_balance
+    when days_since_payment > (cycle_max_days*2) then agreement_current_balance
+  end as past_due_amount_adjusted,
+  case 
+    when employment_status = 'terminated' then 'terminated employee'
+    when agreement_period_evaluation = 'Agreement Period Complete' then 'Agreement Period Complete'
+    when days_since_payment > (cycle_max_days*2) then 'No payment in last two pay cycles'
+  end as past_due_amount_adjusted_reason
+  
+  
+  from all_data
