@@ -54,6 +54,7 @@ select
   cycle_days.cycle_type,
   cycle_days.cycle_max_days,
   c.deduction_due_days,
+  lpd.amount as last_payment_amount,
   lpd.status as last_payment_type,
   lpd.comment as last_payment_comment
 from financials.v_customer_entity_summary c
