@@ -43,7 +43,9 @@ select
   case when apd.amount>0 then 1 else 0 end as orders_past_due,
   c.employment_status,
   bank_accounts.bank_routings,
-  bank_accounts.bank_accounts
+  bank_accounts.bank_accounts,
+  cycle_days.cycle_type,
+  cycle_days.cycle_max_days
 from financials.v_customer_entity_summary c
   inner join bme.agreements a on c.entity_id = a.customer_id
   left join financials.v_scoring_clarity_score cc on c.entity_id = cc.customer_id
@@ -52,6 +54,8 @@ from financials.v_customer_entity_summary c
   left join bme.customer_signups csu on cs.customer_signup_id = csu.id
   left join financials.v_ledger_agreement_summary las on a.id = las.agreement_id
   left join bme.agreements_past_due apd on a.id = apd.agreement_id
+
+-- get agreement balance data
   left join (
     select
         customer_id,
@@ -66,7 +70,8 @@ from financials.v_customer_entity_summary c
         customer_id  
     ) balances
 on a.customer_id = balances.customer_id  
-  
+
+-- Get Initial Payment Data
 left join (
     select agreement_id, round(sum(amount),2) as initial_payment from bme.ledger
       where status = 'initial_payment'
@@ -75,6 +80,7 @@ left join (
   ) initial_payments
   on a.id = initial_payments.agreement_id
 
+-- Get order sequence data
   left join (
     SELECT
         customer_id,
@@ -89,6 +95,7 @@ left join (
         bme.agreements   
     ) order_sequence
   on a.id = order_sequence.id  
+
 -- Get Bank Account Data
   left join (
     select 
@@ -102,10 +109,37 @@ left join (
       inner join bme.customer_bank cb
         on em.employee_id = cb.employee_id
         and em.employer_id = cb.employer_id
-    group by c.entity_id
-  
+    group by c.entity_id  
   ) bank_accounts
-  on a.customer_id = bank_accounts.customer_id  
+    on a.customer_id = bank_accounts.customer_id  
+
+-- Get pay_cycle offset days
+  
+left join (
+    select
+      cycle_type,
+      num_employees,
+      case cycle_type
+        when 'Bi-Weekly' then 14
+        when 'Monthly' then 31
+        when 'Semi-Monthly' then 15
+        when 'Weekly' then 7
+      end as cycle_max_days
+    from
+      (
+        select
+          substring(pay_cycle, 1, locate(':', pay_cycle) -1) as cycle_type,
+          count(1) as num_employees
+        from
+          bme.employee_manifest
+        where
+          customer_id is not null
+        group by
+          substring(pay_cycle, 1, locate(':', pay_cycle) -1)
+      ) base_data
+  ) cycle_days 
+    on substring(c.pay_cycle, 1, locate(':', c.pay_cycle) -1) = cycle_days.cycle_type
+  
 order by a.id desc
   ),
 ip_bands as (
