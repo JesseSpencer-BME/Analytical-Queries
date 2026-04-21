@@ -14,7 +14,12 @@ select
   a.status as agreement_status,
   c.credit_limit as spending_limit,
   c.credit_limit - balances.current_balance as customer_spending_limit_remaining,
-  a.total as purchase_amount, 
+  a.total as purchase_amount,
+  las.order_total,
+  las.payments,
+  las.adjustments,
+  las.pending,
+  las.scheduled_future,
   a.term as term,
   cast(a.term as unsigned) as term_months,
   a.payments as payment_amt,
@@ -187,4 +192,25 @@ select ip_bands.*,
   date_add(date_add(agreement_created, interval (cycle_max_days + deduction_due_days) day), interval term_months month) as agreement_latest_end
 from ip_bands
   )
-select * from all_data
+select all_data.*,
+  case 
+    when agreement_latest_end < date(financials.cst(sysdate()))
+      then 'Agreement Period Complete'
+    else 'Agreement Period Still Open'
+  end as agreement_period_evaluation,
+  CASE
+    WHEN agreement_latest_end <= agreement_created THEN NULL
+    WHEN DATE(financials.cst(SYSDATE())) >= agreement_latest_end THEN 1
+    WHEN DATE(financials.cst(SYSDATE())) <= agreement_created THEN 0
+    ELSE
+        DATEDIFF(
+            DATE(financials.cst(SYSDATE())),
+            agreement_created
+        ) /
+        DATEDIFF(
+            agreement_latest_end,
+            agreement_created
+        )
+END AS pct_agreement_duration_elapsed,
+  -(payments+adjustments) / order_total as pct_order_paid_off
+ from all_data
