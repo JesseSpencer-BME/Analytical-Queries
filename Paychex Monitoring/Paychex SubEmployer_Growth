@@ -1,0 +1,51 @@
+with
+  core as (
+    select
+      company_code,
+      financials.cst(sub_employer_created_at) as event_date,
+      sub_employer_status as status,
+      'added' as event_type,
+      1 as sub_employer_count
+    from
+      financials.v_employer_subemployer_detail
+    where
+      employer_id = 227
+    union all
+    select
+      department_prefix as company_code,
+      financials.cst(created_at) as event_date,
+      status,
+      'updated' as event_type,
+      case
+        when status != 'active' then -1
+        else 1
+      end as sub_employer_count
+    from
+      bme.employer_department_history
+  )
+select
+  core.*,
+  se.sub_employer_name,
+  sub_employer_orders.total_orders,
+  sub_employer_orders.total_order_dollars,
+  sub_employer_orders.total_employees_with_orders,
+  case when total_orders > 0 then 'has_orders'
+  else 'no_orders'
+  end as has_orders
+from
+  core
+  left join v_employer_subemployer_detail se on core.company_code = se.company_code
+  left join (
+    select
+      company_code,
+      sum(total_orders) as total_orders,
+      sum(total_order_dollars) as total_order_dollars,
+      count(1) as total_employees_with_orders
+    from
+      v_customer_entity_summary c
+    where
+      employer_id = 227
+      and total_orders > 0
+    group by
+      company_code  
+  ) sub_employer_orders on core.company_code = sub_employer_orders.company_code
