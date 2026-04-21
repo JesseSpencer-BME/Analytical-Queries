@@ -16,6 +16,7 @@ select
   c.credit_limit - balances.current_balance as customer_spending_limit_remaining,
   a.total as purchase_amount, 
   a.term as term,
+  cast(a.term as unsigned) as term_months,
   a.payments as payment_amt,
   c.first_order,
   c.total_orders-1 as number_prior_purchases,
@@ -45,7 +46,8 @@ select
   bank_accounts.bank_routings,
   bank_accounts.bank_accounts,
   cycle_days.cycle_type,
-  cycle_days.cycle_max_days
+  cycle_days.cycle_max_days,
+  c.deduction_due_days
 from financials.v_customer_entity_summary c
   inner join bme.agreements a on c.entity_id = a.customer_id
   left join financials.v_scoring_clarity_score cc on c.entity_id = cc.customer_id
@@ -150,7 +152,7 @@ select base_data.*,
     when ip_pct between .495 and .505 then '50_pct'
   end as ip_band
   from base_data
-)
+), all_data as(
 select ip_bands.*,
   case 
     when ip_band is null then 'fast_track'
@@ -179,5 +181,10 @@ select ip_bands.*,
     when days_since_payment > 15 then '15-30'
     when days_since_payment > 0 then '0-30'
     else 'no payments made'
-  end as days_since_payment_band  
+  end as days_since_payment_band,
+  cycle_max_days + deduction_due_days as max_agreement_duration,
+  date_add(agreement_created, interval (cycle_max_days + deduction_due_days) day) as agreement_latest_start,
+  date_add(date_add(agreement_created, interval (cycle_max_days + deduction_due_days) day), interval term_months month) as agreement_latest_end
 from ip_bands
+  )
+select * from all_data
