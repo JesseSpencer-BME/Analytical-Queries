@@ -225,14 +225,21 @@ END AS pct_agreement_duration_elapsed,
  from bands)
 select all_data.*,
   case 
+    when employer_go_live_category = 'employer go-live within last 30 days' then past_due_amount
     when employment_status = 'terminated' then agreement_current_balance
     when agreement_period_evaluation = 'Agreement Period Complete' then agreement_current_balance
     when days_since_payment > (cycle_max_days*2) then agreement_current_balance
+    when days_since_payment_band = 'no payments made' then agreement_current_balance
+    else past_due_amount
+  
   end as past_due_amount_adjusted,
   case 
+    when employer_go_live_category = 'employer go-live within last 30 days' then 'employer go-live within last 30 days'
     when employment_status = 'terminated' then 'terminated employee'
     when agreement_period_evaluation = 'Agreement Period Complete' then 'Agreement Period Complete'
     when days_since_payment > (cycle_max_days*2) then 'No payment in last two pay cycles'
+    when days_since_payment_band = 'no payments made' then 'No payments made'
+    else 'Standard System Past-Due'
   end as past_due_amount_adjusted_reason
   
   
