@@ -1,8 +1,10 @@
+with core as (
 select
   l.*,
   concat_ws(' ', first_name, last_name) as employee_name,
   em.employment_status,
-  em.location as sub_employer_name,
+  em.location as location,
+  em.id as employee_manifest_id,
   e.name as employer_name,
   next_schedule.next_scheduled_date,
   a.magento_order_number,
@@ -38,3 +40,17 @@ from
 where
   e.employer_id = 227
   and l.cancelled_at is null
+), past_due_employees as (
+select distinct employee_manifest_id from core
+  where status = 'past_due'
+)
+select core.*,
+  case 
+    when sub_employer_status = 'disconnected' then 'Employer Disconnected'
+    when sub_employer_status is null then 'Employer Status Unknown'
+    when employment_status = 'terminated' then 'Employee Terminated'
+    when past_due_employees.employee_manifest_id is not null then 'Employee past-due'
+    else 'Low Risk'    
+  end as risk_bucket
+from  core 
+left join past_due_employees on core.employee_manifest_id = past_due_employees.employee_manifest_id
