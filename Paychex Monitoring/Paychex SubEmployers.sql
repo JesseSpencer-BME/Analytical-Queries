@@ -1,0 +1,51 @@
+with
+  sub_employers as (
+    select
+      company_code,
+      location as sub_employer_name,
+      1 as sub_employer_count,
+      count(1) as total_employees,
+      sum(
+        case
+          when employment_status = 'terminated' then 1
+        end
+      ) as terminated_employees,
+      sum(
+        case
+          when employment_status != 'terminated' then 1
+        end
+      ) as active_employees
+    from
+      bme.employee_manifest em
+    where
+      employer_id = 227
+    group by
+      company_code,
+      location
+  ),
+  orders as (
+  select
+    employer_id,
+    company_code,
+    sum(case when total_orders >0 then 1 end) as employees_with_orders,
+    sum(total_orders) as total_order_count,
+    sum(total_order_dollars) as total_order_value
+  from
+    financials.v_customer_entity_summary cs
+  where
+    employer_id = 227
+  group by employer_id,
+    company_code  
+  )
+select 
+  se.*, 
+  es.sub_employer_status, 
+  orders.employees_with_orders,
+  orders.total_order_count,
+  orders.total_order_value,
+  case when es.sub_employer_status = 'active' then 1 end as active_count,
+  case when es.sub_employer_status != 'active' then 1 end as inactive_count,
+  case when orders.total_order_count > 0 then 1 end as sub_employer_has_orders
+from sub_employers se
+left join financials.v_employer_subemployer_detail es on se.company_code = es.company_code
+left join orders on se.company_code = orders.company_code
