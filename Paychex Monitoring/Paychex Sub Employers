@@ -39,12 +39,12 @@ with
   )
 select 
   se.*, 
-  es.status as sub_employer_status, 
+  es.sub_employer_status, 
   orders.employees_with_orders,
   orders.total_order_count,
   orders.total_order_value,
-  case when es.status = 'active' then 1 end as active_count,
-  case when es.status != 'active' then 1 end as inactive_count,
+  case when es.sub_employer_status = 'active' then 1 end as active_count,
+  case when es.sub_employer_status != 'active' then 1 end as inactive_count,
   case when orders.total_order_count > 0 then 1 end as sub_employer_has_orders
 from sub_employers se
 left join financials.v_employer_subemployer_detail es on se.company_code = es.company_code
