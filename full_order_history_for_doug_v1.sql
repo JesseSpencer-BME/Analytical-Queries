@@ -33,6 +33,7 @@ select
   a.id as agreement_id,
   c.entity_id as customer_id,
   e.scoring_model_type,
+  e.go_live_date,
   csu.salary as salary_self_reported,
   csu.tenure as tenure_self_reported,
   csu.employer_name as employer_self_reported,
@@ -212,5 +213,9 @@ select all_data.*,
             agreement_created
         )
 END AS pct_agreement_duration_elapsed,
-  -(payments+adjustments) / order_total as pct_order_paid_off
+  -(payments+adjustments) / order_total as pct_order_paid_off,
+  case 
+    when go_live_date < (date(sysdate()) - interval 30 day) then 'employer go-live within last 30 days'
+    else 'employer go-live over 30 days ago'
+  end as employer_go_live_category
  from all_data
