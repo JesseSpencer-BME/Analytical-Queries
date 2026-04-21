@@ -8,7 +8,9 @@ select
   a.magento_order_number,
   lsa.ledger_stage,
   lsa.include_in_balance_calculation,
-  lsa.ledger_stage_category
+  lsa.ledger_stage_category,
+  sed.sub_employer_name,
+  sed.sub_employer_status
 from
   bme.ledger l
   left join bme.agreements a on l.agreement_id = a.id
@@ -16,6 +18,7 @@ from
   left join bme.employee_manifest em on c.entity_id = em.customer_id
   left join bme.employer e on c.employer_id = e.employer_id
   left join financials.v_ledger_status_attributes lsa on l.status = lsa.status
+  left join financials.v_employer_subemployer_detail sed on em.employer_id = sed.employer_id and em.company_code = sed.company_code
 
   -- Get the next schedule date  
   left join (
