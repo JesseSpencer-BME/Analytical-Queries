@@ -53,7 +53,9 @@ select
   bank_accounts.bank_accounts,
   cycle_days.cycle_type,
   cycle_days.cycle_max_days,
-  c.deduction_due_days
+  c.deduction_due_days,
+  lpd.status as last_payment_type,
+  lpd.comment as last_payment_comment
 from financials.v_customer_entity_summary c
   inner join bme.agreements a on c.entity_id = a.customer_id
   left join financials.v_scoring_clarity_score cc on c.entity_id = cc.customer_id
@@ -62,6 +64,7 @@ from financials.v_customer_entity_summary c
   left join bme.customer_signups csu on cs.customer_signup_id = csu.id
   left join financials.v_ledger_agreement_summary las on a.id = las.agreement_id
   left join bme.agreements_past_due apd on a.id = apd.agreement_id
+  left join financials.v_ledger_last_payment_detail lpd on a.id = lpd.agreement_id
 
 -- get agreement balance data
   left join (
