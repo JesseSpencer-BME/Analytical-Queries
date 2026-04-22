@@ -12,7 +12,8 @@ select
   lsa.include_in_balance_calculation,
   lsa.ledger_stage_category,
   sed.sub_employer_name,
-  sed.sub_employer_status
+  sed.sub_employer_status,
+  em.worker_id
 from
   bme.ledger l
   left join bme.agreements a on l.agreement_id = a.id
@@ -51,6 +52,8 @@ select core.*,
     when employment_status = 'terminated' then 'Employee Terminated'
     when past_due_employees.employee_manifest_id is not null then 'Employee past-due'
     else 'Low Risk'    
-  end as risk_bucket
+  end as risk_bucket,
+  case when status = 'past_due' then amount end as past_due_amt,
+  case when status = 'paid_payroll_deduction' then amount end as paid_payroll_deduction_amt  
 from  core 
 left join past_due_employees on core.employee_manifest_id = past_due_employees.employee_manifest_id
