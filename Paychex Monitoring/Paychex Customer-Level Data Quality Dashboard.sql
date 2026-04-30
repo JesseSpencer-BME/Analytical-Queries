@@ -31,7 +31,12 @@ select
   c.next_pay_date,
   deductions_per_paystub,
   last_pay_run_status.*,
-  TIMESTAMPDIFF(HOUR, paycycle_closed_at,first_pay_component_deduction_sent) as hours_between_component_send_and_payroll_close
+  TIMESTAMPDIFF(HOUR, paycycle_closed_at,first_pay_component_deduction_sent) as hours_between_component_send_and_payroll_close,
+  least(
+    coalesce(last_pay_period_endDate,      '9999-12-31'),
+    coalesce(paycycle_closed_at,           '9999-12-31'),
+    coalesce(last_pay_period_submitByDate, '9999-12-31')
+  ) as deduction_comparison_date
   
 from bme.employee_manifest em
   left join bme.employer_department ed on ed.department_prefix = em.company_code and ed.employer_id = em.employer_id
@@ -142,7 +147,13 @@ from bme.employee_manifest em
             JSON_VALUE(company_payperiods.raw_data, '$.endDate'),
             '%Y-%m-%dT%H:%i:%sZ'
           )
-        ) as last_pay_period_endDate
+        ) as last_pay_period_endDate,
+        DATE(
+          STR_TO_DATE(
+            JSON_VALUE(company_payperiods.raw_data, '$.submitByDate'),
+            '%Y-%m-%dT%H:%i:%sZ'
+          )
+        ) as last_pay_period_submitByDate
       from
         (
           SELECT
@@ -184,10 +195,19 @@ from bme.employee_manifest em
 where em.employer_id = 227 and em.customer_id is not null )
 
 select *,
+  
+case deduction_comparison_date
+    when '9999-12-31'    then 'NONE'
+    when last_pay_period_endDate    then 'last_pay_period_endDate'
+    when paycycle_closed_at       then 'last_paycycle_closed_at'
+    when last_pay_period_submitByDate then 'last_pay_period_submitByDate'
+  end as date_selection_reason,
+  
 case 
   when first_pay_component_deduction_sent is null then 'No First Deduction Found'
   else 'First Deduction Sent'
 end as first_deduction_status,
+  
 case 
     when connection_status = 'disconnected' then 'company disconnected'
     when employment_status = 'Terminated' then 'employee terminated'
@@ -198,6 +218,7 @@ case
     when first_pay_date is null then 'no paystubs found for employee'
     when last_pay_date < date(sysdate() - INTERVAL 33 day) then 'employee not paid - no paystub for over 1 month'
     when paycycle_closed_at is null then 'No Found Payroll Completion Date for Employee'
+    when deduction_comparison_date > first_pay_component_deduction_sent then 'Deduction sent after Earliest PayDate, Submit Date, or Close Date'
     when first_pay_component_deduction_sent > last_pay_period_endDate then 'Pay component sent after last pay period end date'
     when hours_between_component_send_and_payroll_close between -24 and 0 then 'Deduction submitted within 24 hours of pay-cycle cutoff'
     when hours_between_component_send_and_payroll_close < -24 then 'Deduction submitted more than 24 hours before pay-cycle cutoff'
