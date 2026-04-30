@@ -1,0 +1,235 @@
+with core_data as (
+select
+  em.id,
+  em.customer_id,
+  employee_id,
+  em.company_code,
+  em.pay_frequency,
+  concat_ws(' ',first_name, last_name) as name,
+  fd.first_pay_component_deduction_sent,
+  total_agreements,
+  first_purchase_date,
+  purchase_total,
+  total_paystubs,
+  all_pay_dates,      
+  first_pay_date,
+  last_pay_date,  
+  all_paydates_with_deduction,
+  first_pay_date_with_deduction,
+  last_pay_date_with_deduction,
+  ed.status as connection_status,
+  em.employment_status,
+  blocked.is_blocked,
+  paid_payroll_deduction_amt,
+  paid_payroll_deduction_dates,
+  paid_via_card_voluntarily,
+  paid_via_card_collection,
+  pay_frequency_cycle_days,
+  paycycle_scheduled_payment,
+  DATEDIFF(date(sysdate()),first_pay_date_with_deduction) as days_since_first_deduction_sent,
+  (DATEDIFF(date(sysdate()),first_pay_date_with_deduction)) / pay_frequency_cycle_days as pay_cycles_since_first_deduction_sent,
+  c.next_pay_date,
+  deductions_per_paystub,
+  last_pay_run_status.*,
+  TIMESTAMPDIFF(HOUR, paycycle_closed_at,first_pay_component_deduction_sent) as hours_between_component_send_and_payroll_close
+  
+from bme.employee_manifest em
+  left join bme.employer_department ed on ed.department_prefix = em.company_code and ed.employer_id = em.employer_id
+  left join bme.customer_entity c on em.customer_id = c.entity_id
+  
+  -- All agreements
+  inner join (
+    select
+    customer_id,
+    count(1) as total_agreements,
+    sum(total) as purchase_total,
+    min(date_created) as first_purchase_date,
+    sum(payments) as paycycle_scheduled_payment
+  from
+    bme.agreements
+  where
+    employer_id = 227
+  group by customer_id
+  ) customer_orders on em.customer_id = customer_orders.customer_id
+
+  -- Blocked Employees
+  left join (
+    select distinct employee_manifest_id, 'blocked' as is_blocked from bme.employee_paystubs
+    where json_value(additional_data, '$.deductions[0].isBlocked') = '1'
+    and employee_manifest_id in (select id from bme.employee_manifest where employer_id = 227 and customer_id is not null)
+  ) blocked on em.id = blocked.employee_manifest_id
+
+  -- Get first deduction date API'd to Paychex
+  left join (
+    select
+      worker_id,
+      min(sent_at) as first_pay_component_deduction_sent
+    from
+      employers.customer_pay_components
+    group by
+      worker_id
+  ) fd on em.employee_id = fd.worker_id
+
+  -- Get all Paystubs with deductions
+  left join (
+    select
+        employee_manifest_id,
+        count(1) as total_paystubs,
+        group_concat(pay_date order by pay_date) as all_pay_dates,      
+        max(pay_date) as last_pay_date,
+        min(pay_date) as first_pay_date,
+        group_concat(case when deductions>0 then pay_date end order by pay_date asc) as all_paydates_with_deduction,
+        min(case when deductions > 0 then pay_date end) as first_pay_date_with_deduction,
+        max(case when deductions > 0 then pay_date end) as last_pay_date_with_deduction,
+        sum(deductions) as deductions_per_paystub        
+        from
+        bme.employee_manifest em
+        left join bme.employee_paystubs ep on em.id = ep.employee_manifest_id
+      where
+        em.employer_id = 227
+        and customer_id is not null
+        and pay_date >= '2025-04-01'
+      group by employee_manifest_id
+  
+  ) paystub_details on em.id = paystub_details.employee_manifest_id
+
+  -- Get Ledger Summary Data
+  left join(
+      select
+        a.customer_id,
+        sum(case when l.status = 'paid_payroll_deduction' then (- amount) end) as paid_payroll_deduction_amt,
+        group_concat( distinct case when l.status = 'paid_payroll_deduction' then l.transaction_date end) as paid_payroll_deduction_dates,
+        sum( case when l.status = 'paid_self_card_payment' then (- amount) end ) as paid_via_card_voluntarily,
+        sum( case when l.status = 'paid_auto_card_collection' then (- amount) end ) as paid_via_card_collection
+      from
+        bme.ledger l
+        inner join bme.agreements a on l.agreement_id = a.id
+      where
+        l.cancelled_at is null
+        and a.employer_id = 227
+      group by
+        customer_id  
+  ) ledger_summary on em.customer_id = ledger_summary.customer_id
+
+  -- Pay Frequency Days
+    left join
+    (
+      select 'Bi-Weekly' as pay_frequency, 14 as pay_frequency_cycle_days
+      union
+      select 'Weekly' as pay_frequency, 7 as pay_frequency_cycle_days
+      union
+      select 'Semi-Monthly' as pay_frequency, 15 as pay_frequency_cycle_days
+      union
+      select 'Monthly' as pay_frequency, 31 as pay_frequency_cycle_days
+    ) pf on em.pay_frequency = pf.pay_frequency
+
+  -- last pay run data from paychex
+  left join (    
+   select
+        a.employee_manifest_id,
+        a.payPeriodId as pay_period_id_paycheck,
+        company_payperiods.pay_period_id as pay_period_id_payperiod,
+        company_payperiods.status,
+        company_payperiods.completed_at as paycycle_closed_at,
+        DATE(
+          STR_TO_DATE(
+            JSON_VALUE(company_payperiods.raw_data, '$.startDate'),
+            '%Y-%m-%dT%H:%i:%sZ'
+          )
+        ) as last_pay_period_startDate,
+        DATE(
+          STR_TO_DATE(
+            JSON_VALUE(company_payperiods.raw_data, '$.endDate'),
+            '%Y-%m-%dT%H:%i:%sZ'
+          )
+        ) as last_pay_period_endDate
+      from
+        (
+          SELECT
+            employee_manifest_id,
+            payPeriodId
+          FROM
+            ( -- Get the last paystub period id for employee
+              SELECT
+                em.id as employee_manifest_id,
+                json_value(ep.additional_data, '$.payPeriodId') as payPeriodId,
+                em.customer_id,
+                em.employer_id,
+                ROW_NUMBER() OVER (
+                  PARTITION BY
+                    ep.employee_manifest_id
+                  ORDER BY
+                    ep.pay_date DESC
+                ) AS rn
+              FROM
+                bme.employee_paystubs ep
+                INNER JOIN bme.employee_manifest em ON ep.employee_manifest_id = em.id
+              WHERE
+                em.employer_id = 227
+                AND em.customer_id IN (
+                  SELECT DISTINCT
+                    customer_id
+                  FROM
+                    bme.agreements
+                  WHERE
+                    employer_id = 227
+                )
+            ) ranked
+          WHERE
+            rn = 1
+        ) a
+        left join employers.company_payperiods on a.payPeriodId = company_payperiods.pay_period_id
+    ) last_pay_run_status on em.id = last_pay_run_status.employee_manifest_id
+
+where em.employer_id = 227 and em.customer_id is not null )
+
+select *,
+case 
+  when first_pay_component_deduction_sent is null then 'No First Deduction Found'
+  else 'First Deduction Sent'
+end as first_deduction_status,
+case 
+    when connection_status = 'disconnected' then 'company disconnected'
+    when employment_status = 'Terminated' then 'employee terminated'
+    when is_blocked = 'blocked' then 'blocked'
+    when first_pay_date_with_deduction is not null then 'at least one deduction received (paystub)'
+    when paid_payroll_deduction_amt > 0 then 'at least one deduction received (ledger)'
+    when first_pay_component_deduction_sent is null then 'No Pay Component Found Sent to Paychex'    
+    when first_pay_date is null then 'no paystubs found for employee'
+    when last_pay_date < date(sysdate() - INTERVAL 33 day) then 'employee not paid - no paystub for over 1 month'
+    when paycycle_closed_at is null then 'No Found Payroll Completion Date for Employee'
+    when first_pay_component_deduction_sent > last_pay_period_endDate then 'Pay component sent after last pay period end date'
+    when hours_between_component_send_and_payroll_close between -24 and 0 then 'Deduction submitted within 24 hours of pay-cycle cutoff'
+    when hours_between_component_send_and_payroll_close < -24 then 'Deduction submitted more than 24 hours before pay-cycle cutoff'
+    when paycycle_closed_at < first_pay_component_deduction_sent then 'Payroll closed before first deduction sent'
+    else 'unknown'
+  end as risk_driver,
+  
+case 
+    when first_pay_component_deduction_sent is not null then 'Valid pay components recorded w/ Paychex'
+    when first_purchase_date >= '2026-04-17' and first_pay_component_deduction_sent is null then 'No valid pay component recorded w/ Paychex'
+    when first_purchase_date < '2026-04-17' then 'Purchased before logged pay component data (26-04-17)'
+  end as paychex_deduction_component_status,
+  
+case 
+  when first_purchase_date >= (date(sysdate()) - interval pay_frequency_cycle_days day) then 'first purchase made within last paycycle'
+  else 'first purchase made before last paycycle' 
+end as first_purchase_within_last_cycle,
+
+  case 
+    when pay_cycles_since_first_deduction_sent > 2 then 'More than two pay-cycles have past'
+    else 'Fewer than two pay-cycles have past' 
+  end as cycles_since_first_deduction,
+  
+  case 
+    when paid_payroll_deduction_amt > 0 and first_pay_date_with_deduction is null then 'Have Ledger Deductions, but no Paycheck'
+  end as ledger_deductions_without_paystub,
+
+  case 
+    when paycycle_closed_at is null then 'No Found Payroll Completion Date'  
+    when first_pay_component_deduction_sent is null then 'No Found Deduction Component Sent'
+    when paycycle_closed_at < first_pay_component_deduction_sent then 'Payroll closed before first deduction sent'
+    else 'Payroll closed AFTER deduction sent'
+  end as payroll_vs_pay_component_status
+
+from core_data
