@@ -237,7 +237,7 @@ case
     when first_pay_component_deduction_sent is null then 'No Pay Component Found Sent to Paychex'    
     when first_pay_date is null then 'no paystubs found for employee'
     when last_pay_date < date(sysdate() - INTERVAL 33 day) then 'employee not paid - no paystub for over 1 month'
-    when paycycle_closed_at is null then 'No Found Payroll Completion Date for Employee'
+    -- when paycycle_closed_at is null then 'No Found Payroll Completion Date for Employee'
     when first_pay_component_deduction_sent > deduction_comparison_date then 'Deduction sent after Earliest PayDate, Submit Date, or Close Date'
     when first_pay_component_deduction_sent > last_pay_period_endDate then 'Pay component sent after last pay period end date'
     when TIMESTAMPDIFF(HOUR, deduction_comparison_date,first_pay_component_deduction_sent) between -24 and 0 then 'Deduction submitted within 24 hours of deduction send cutoff'
