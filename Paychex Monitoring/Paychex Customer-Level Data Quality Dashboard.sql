@@ -6,7 +6,12 @@ select
   em.company_code,
   em.pay_frequency,
   concat_ws(' ',first_name, last_name) as name,
-  fd.first_pay_component_deduction_sent,
+  fd.first_pay_component_deduction_sent as first_pay_component_deduction_sent_raw,
+  case
+    when weekday(fd.first_pay_component_deduction_sent) = 5 then fd.first_pay_component_deduction_sent + interval 2 day -- Saturday
+    when weekday(fd.first_pay_component_deduction_sent) = 6 then fd.first_pay_component_deduction_sent + interval 1 day -- Sunday
+    else fd.first_pay_component_deduction_sent
+  end as first_pay_component_deduction_sent,
   total_agreements,
   first_purchase_date,
   purchase_total,
@@ -195,6 +200,8 @@ from bme.employee_manifest em
 where em.employer_id = 227 and em.customer_id is not null )
 
 select *,
+
+TIMESTAMPDIFF(HOUR, deduction_comparison_date,first_pay_component_deduction_sent) as hours_between_component_send_and_deduction_comparison_date,
   
 case deduction_comparison_date
     when '9999-12-31'    then 'NONE'
@@ -218,10 +225,12 @@ case
     when first_pay_date is null then 'no paystubs found for employee'
     when last_pay_date < date(sysdate() - INTERVAL 33 day) then 'employee not paid - no paystub for over 1 month'
     when paycycle_closed_at is null then 'No Found Payroll Completion Date for Employee'
-    when deduction_comparison_date > first_pay_component_deduction_sent then 'Deduction sent after Earliest PayDate, Submit Date, or Close Date'
+    when first_pay_component_deduction_sent > deduction_comparison_date then 'Deduction sent after Earliest PayDate, Submit Date, or Close Date'
     when first_pay_component_deduction_sent > last_pay_period_endDate then 'Pay component sent after last pay period end date'
-    when hours_between_component_send_and_payroll_close between -24 and 0 then 'Deduction submitted within 24 hours of pay-cycle cutoff'
-    when hours_between_component_send_and_payroll_close < -24 then 'Deduction submitted more than 24 hours before pay-cycle cutoff'
+    when TIMESTAMPDIFF(HOUR, deduction_comparison_date,first_pay_component_deduction_sent) between -24 and 0 then 'Deduction submitted within 24 hours of deduction send cutoff'
+    when TIMESTAMPDIFF(HOUR, deduction_comparison_date,first_pay_component_deduction_sent) < -24 then 'Deduction submitted more than 24 hours before deduction send cutoff'
+    -- when hours_between_component_send_and_payroll_close between -24 and 0 then 'Deduction submitted within 24 hours of pay-cycle cutoff'
+    -- when hours_between_component_send_and_payroll_close < -24 then 'Deduction submitted more than 24 hours before pay-cycle cutoff'
     when paycycle_closed_at < first_pay_component_deduction_sent then 'Payroll closed before first deduction sent'
     else 'unknown'
   end as risk_driver,
