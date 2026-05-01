@@ -41,7 +41,12 @@ select
     coalesce(last_pay_period_endDate,      '9999-12-31'),
     coalesce(paycycle_closed_at,           '9999-12-31'),
     coalesce(last_pay_period_submitByDate, '9999-12-31')
-  ) as deduction_comparison_date
+  ) as deduction_comparison_date,
+  greatest(
+    coalesce(last_pay_period_endDate,      '2026-01-01'),
+    coalesce(paycycle_closed_at,           '2026-01-01'),
+    coalesce(last_pay_period_submitByDate, '2026-01-01')
+  ) as next_deduction_comparison_date
   
 from bme.employee_manifest em
   left join bme.employer_department ed on ed.department_prefix = em.company_code and ed.employer_id = em.employer_id
@@ -209,7 +214,15 @@ case deduction_comparison_date
     when paycycle_closed_at       then 'last_paycycle_closed_at'
     when last_pay_period_submitByDate then 'last_pay_period_submitByDate'
   end as date_selection_reason,
-  
+
+next_deduction_comparison_date + interval pay_frequency_cycle_days day as next_expected_deduction_date,
+
+case next_deduction_comparison_date
+    when '2026-01-01'    then 'NONE'
+    when last_pay_period_endDate    then 'last_pay_period_endDate'
+    when paycycle_closed_at       then 'last_paycycle_closed_at'
+    when last_pay_period_submitByDate then 'last_pay_period_submitByDate'
+  end as next_deduction_date_selection_reason,  
 case 
   when first_pay_component_deduction_sent is null then 'No First Deduction Found'
   else 'First Deduction Sent'
