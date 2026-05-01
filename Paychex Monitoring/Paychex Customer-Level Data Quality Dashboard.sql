@@ -238,7 +238,14 @@ case
     when first_pay_date is null then 'no paystubs found for employee'
     when last_pay_date < date(sysdate() - INTERVAL 33 day) then 'employee not paid - no paystub for over 1 month'
     -- when paycycle_closed_at is null then 'No Found Payroll Completion Date for Employee'
-    when first_pay_component_deduction_sent > deduction_comparison_date then 'Deduction sent after Earliest PayDate, Submit Date, or Close Date'
+    when first_pay_component_deduction_sent > deduction_comparison_date 
+      and ((next_deduction_comparison_date + interval pay_frequency_cycle_days-1 DAY) < DATE(SYSDATE()))
+      then 'Deduction sent after Earliest PayDate, Submit Date, or Close Date: Past Due'
+
+    when first_pay_component_deduction_sent > deduction_comparison_date 
+        and  (next_deduction_comparison_date + interval pay_frequency_cycle_days-1 DAY) >= DATE(SYSDATE())
+        then 'Deduction sent after Earliest PayDate, Submit Date, or Close Date: Still Expected'
+  
     when first_pay_component_deduction_sent > last_pay_period_endDate then 'Pay component sent after last pay period end date'
     when TIMESTAMPDIFF(HOUR, deduction_comparison_date,first_pay_component_deduction_sent) between -24 and 0 then 'Deduction submitted within 24 hours of deduction send cutoff'
     when TIMESTAMPDIFF(HOUR, deduction_comparison_date,first_pay_component_deduction_sent) < -24 then 'Deduction submitted more than 24 hours before deduction send cutoff'
