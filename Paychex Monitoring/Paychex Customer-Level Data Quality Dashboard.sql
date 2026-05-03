@@ -248,9 +248,13 @@ TIMESTAMPDIFF(HOUR, deduction_comparison_date,first_pay_component_deduction_sent
 
 case when first_pay_component_deduction_sent > next_deduction_comparison_date -- check if deduction happened after our last-known comparison date
     then  first_pay_component_deduction_sent + interval pay_frequency_cycle_days day
-  else next_deduction_comparison_date + interval pay_frequency_cycle_days day 
-  
+  else next_deduction_comparison_date + interval pay_frequency_cycle_days day
 end as next_expected_deduction_date,
+
+case when first_pay_component_deduction_sent > next_deduction_comparison_date -- check if deduction happened after our last-known comparison date
+    then  'Deduction after last known paystub data - used deduction + offset'
+  else 'Used last known paystub + offset'
+end as next_expected_deduction_date_reason,
   
 case 
   when first_pay_component_deduction_sent is null then 'No First Deduction Found'
