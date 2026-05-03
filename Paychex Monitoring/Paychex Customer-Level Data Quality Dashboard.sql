@@ -146,6 +146,8 @@ from bme.employee_manifest em
         company_payperiods.pay_period_id as pay_period_id_payperiod,
         company_payperiods.status,
         company_payperiods.completed_at as paycycle_closed_at,
+        JSON_VALUE(company_payperiods.raw_data, '$.intervalCode') as last_pay_interval,
+        JSON_VALUE(company_payperiods.raw_data, '$.description') as last_pay_description,
         DATE(
           STR_TO_DATE(
             JSON_VALUE(company_payperiods.raw_data, '$.startDate'),
