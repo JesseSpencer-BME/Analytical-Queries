@@ -1,3 +1,4 @@
+-- create or replace view financials.v_paychex_customer_status as
 with core_data as (
 select
   em.id,
@@ -50,11 +51,13 @@ select
 
   last_company_run_by_paycycle.company_last_scheduled_check_cycle,
   last_company_run_by_paycycle.company_last_completed_check_cycle,
-  last_company_run_by_paycycle.company_last_webhook
+  last_company_run_by_paycycle.company_last_webhook,
+  cs.paychex_research_notes
   
 from bme.employee_manifest em
   left join bme.employer_department ed on ed.department_prefix = em.company_code and ed.employer_id = em.employer_id
   left join bme.customer_entity c on em.customer_id = c.entity_id
+  left join financials.customer_supplemental cs on em.customer_id = cs.customer_id
   
   -- All agreements
   inner join (
