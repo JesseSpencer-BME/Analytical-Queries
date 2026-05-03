@@ -46,7 +46,10 @@ select
     coalesce(last_pay_period_endDate,      '2026-01-01'),
     coalesce(paycycle_closed_at,           '2026-01-01'),
     coalesce(last_pay_period_submitByDate, '2026-01-01')
-  ) as next_deduction_comparison_date
+  ) as next_deduction_comparison_date,
+
+  last_company_run_by_paycycle.company_last_avaiable_check_cycle,
+  last_company_run_by_paycycle.company_last_webhook
   
 from bme.employee_manifest em
   left join bme.employer_department ed on ed.department_prefix = em.company_code and ed.employer_id = em.employer_id
@@ -204,6 +207,25 @@ from bme.employee_manifest em
         left join employers.company_payperiods on a.payPeriodId = company_payperiods.pay_period_id
     ) last_pay_run_status on em.id = last_pay_run_status.employee_manifest_id
 
+-- get the most recent paycycle date closed for the employer
+  left join (
+      select
+        company_id,
+        JSON_VALUE(cp.raw_data, '$.description') as pay_description,
+        max(check_date) as company_last_avaiable_check_cycle,
+        max(completed_at) as company_last_webhook
+      from
+        employers.company_payperiods cp
+      where
+        completed_at is not null
+      group by
+        company_id,
+        JSON_VALUE(cp.raw_data, '$.description')
+    ) last_company_run_by_paycycle on em.company_code = last_company_run_by_paycycle.company_id
+      and last_pay_run_status.last_pay_description = last_company_run_by_paycycle.pay_description
+ 
+
+-- Overall Filters for whole query
 where em.employer_id = 227 and em.customer_id is not null )
 
 select *,
