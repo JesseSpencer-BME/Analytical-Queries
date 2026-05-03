@@ -48,7 +48,8 @@ select
     coalesce(last_pay_period_submitByDate, '2026-01-01')
   ) as next_deduction_comparison_date,
 
-  last_company_run_by_paycycle.company_last_avaiable_check_cycle,
+  last_company_run_by_paycycle.company_last_scheduled_check_cycle,
+  last_company_run_by_paycycle.company_last_completed_check_cycle,
   last_company_run_by_paycycle.company_last_webhook
   
 from bme.employee_manifest em
@@ -212,12 +213,11 @@ from bme.employee_manifest em
       select
         company_id,
         JSON_VALUE(cp.raw_data, '$.description') as pay_description,
-        max(check_date) as company_last_avaiable_check_cycle,
+        max(check_date) as company_last_scheduled_check_cycle,
+        max(case when status = 'COMPLETED' then check_date end) as company_last_completed_check_cycle,
         max(completed_at) as company_last_webhook
       from
-        employers.company_payperiods cp
-      where
-        completed_at is not null
+        employers.company_payperiods cp        
       group by
         company_id,
         JSON_VALUE(cp.raw_data, '$.description')
