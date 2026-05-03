@@ -32,23 +32,25 @@ select
   paid_via_card_collection,
   pay_frequency_cycle_days,
   paycycle_scheduled_payment,
-  DATEDIFF(date(sysdate()),first_pay_date_with_deduction) as days_since_first_deduction_sent,
-  (DATEDIFF(date(sysdate()),first_pay_date_with_deduction)) / pay_frequency_cycle_days as pay_cycles_since_first_deduction_sent,
+  DATEDIFF(date(sysdate()),first_pay_component_deduction_sent) as days_since_first_deduction_sent,
+  (DATEDIFF(date(sysdate()),first_pay_component_deduction_sent)) / pay_frequency_cycle_days as pay_cycles_since_first_deduction_sent,
   c.next_pay_date,
-  deductions_per_paystub,
-  last_pay_run_status.*,
+  deductions_per_paystub,  
+  last_pay_run_status.employee_manifest_id,
+  last_pay_run_status.pay_period_id_paycheck,
+  last_pay_run_status.pay_period_id_payperiod,
+  last_pay_run_status.status,
+  last_pay_run_status.paycycle_closed_at,
+  last_pay_run_status.last_pay_interval,
+  last_pay_run_status.last_pay_description,
+  last_pay_run_status.last_pay_period_startDate,
+  last_pay_run_status.last_pay_period_endDate,
+  last_pay_run_status.last_pay_period_submitByDate,
+  last_pay_run_status.deduction_comparison_date,
+  last_pay_run_status.next_deduction_comparison_date,
+  last_pay_run_status.date_selection_reason,
+  last_pay_run_status.next_deduction_date_selection_reason,
   TIMESTAMPDIFF(HOUR, paycycle_closed_at,first_pay_component_deduction_sent) as hours_between_component_send_and_payroll_close,
-  least(
-    coalesce(last_pay_period_endDate,      '9999-12-31'),
-    coalesce(paycycle_closed_at,           '9999-12-31'),
-    coalesce(last_pay_period_submitByDate, '9999-12-31')
-  ) as deduction_comparison_date,
-  greatest(
-    coalesce(last_pay_period_endDate,      '2026-01-01'),
-    coalesce(paycycle_closed_at,           '2026-01-01'),
-    coalesce(last_pay_period_submitByDate, '2026-01-01')
-  ) as next_deduction_comparison_date,
-
   last_company_run_by_paycycle.company_last_scheduled_check_cycle,
   last_company_run_by_paycycle.company_last_completed_check_cycle,
   last_company_run_by_paycycle.company_last_webhook,
@@ -147,68 +149,77 @@ from bme.employee_manifest em
 
   -- last pay run data from paychex
   left join (    
-   select
-        a.employee_manifest_id,
-        a.payPeriodId as pay_period_id_paycheck,
-        company_payperiods.pay_period_id as pay_period_id_payperiod,
-        company_payperiods.status,
-        company_payperiods.completed_at as paycycle_closed_at,
-        JSON_VALUE(company_payperiods.raw_data, '$.intervalCode') as last_pay_interval,
-        JSON_VALUE(company_payperiods.raw_data, '$.description') as last_pay_description,
-        DATE(
-          STR_TO_DATE(
-            JSON_VALUE(company_payperiods.raw_data, '$.startDate'),
-            '%Y-%m-%dT%H:%i:%sZ'
-          )
-        ) as last_pay_period_startDate,
-        DATE(
-          STR_TO_DATE(
-            JSON_VALUE(company_payperiods.raw_data, '$.endDate'),
-            '%Y-%m-%dT%H:%i:%sZ'
-          )
-        ) as last_pay_period_endDate,
-        DATE(
-          STR_TO_DATE(
-            JSON_VALUE(company_payperiods.raw_data, '$.submitByDate'),
-            '%Y-%m-%dT%H:%i:%sZ'
-          )
-        ) as last_pay_period_submitByDate
-      from
-        (
-          SELECT
-            employee_manifest_id,
-            payPeriodId
-          FROM
-            ( -- Get the last paystub period id for employee
-              SELECT
-                em.id as employee_manifest_id,
-                json_value(ep.additional_data, '$.payPeriodId') as payPeriodId,
-                em.customer_id,
-                em.employer_id,
-                ROW_NUMBER() OVER (
-                  PARTITION BY
-                    ep.employee_manifest_id
-                  ORDER BY
-                    ep.pay_date DESC
-                ) AS rn
-              FROM
-                bme.employee_paystubs ep
-                INNER JOIN bme.employee_manifest em ON ep.employee_manifest_id = em.id
-              WHERE
-                em.employer_id = 227
-                AND em.customer_id IN (
-                  SELECT DISTINCT
-                    customer_id
-                  FROM
-                    bme.agreements
-                  WHERE
-                    employer_id = 227
-                )
-            ) ranked
-          WHERE
-            rn = 1
-        ) a
-        left join employers.company_payperiods on a.payPeriodId = company_payperiods.pay_period_id
+    WITH last_paystub_per_employee AS (
+        -- Get the most recent paystub per employee for employer 227
+        SELECT
+            em.id AS employee_manifest_id,
+            JSON_VALUE(ep.additional_data, '$.payPeriodId') AS pay_period_id,
+            em.customer_id,
+            em.employer_id,
+            ROW_NUMBER() OVER (
+                PARTITION BY ep.employee_manifest_id
+                ORDER BY ep.pay_date DESC
+            ) AS rn
+        FROM bme.employee_paystubs ep
+        INNER JOIN bme.employee_manifest em
+            ON ep.employee_manifest_id = em.id
+        INNER JOIN bme.agreements ag
+            ON ag.customer_id = em.customer_id
+            AND ag.employer_id = em.employer_id
+        WHERE em.employer_id = 227
+    ),
+    
+    pay_period_details AS (
+      -- Pull the relevant pay period attributes for the latest paystub
+        SELECT
+            lp.employee_manifest_id,
+            lp.pay_period_id                                AS pay_period_id_paycheck,
+            cp.pay_period_id                                AS pay_period_id_payperiod,
+            cp.status,
+            cp.completed_at                                 AS paycycle_closed_at,
+            JSON_VALUE(cp.raw_data, '$.intervalCode')       AS last_pay_interval,
+            JSON_VALUE(cp.raw_data, '$.description')        AS last_pay_description,
+            DATE(STR_TO_DATE(JSON_VALUE(cp.raw_data, '$.startDate'),     '%Y-%m-%dT%H:%i:%sZ')) AS last_pay_period_startDate,
+            DATE(STR_TO_DATE(JSON_VALUE(cp.raw_data, '$.endDate'),       '%Y-%m-%dT%H:%i:%sZ')) AS last_pay_period_endDate,
+            DATE(STR_TO_DATE(JSON_VALUE(cp.raw_data, '$.submitByDate'),  '%Y-%m-%dT%H:%i:%sZ')) AS last_pay_period_submitByDate
+        FROM last_paystub_per_employee lp
+        LEFT JOIN employers.company_payperiods cp
+            ON lp.pay_period_id = cp.pay_period_id
+        WHERE lp.rn = 1
+    ),
+    
+    with_comparison_dates AS (
+        SELECT
+            pd.*,
+            LEAST(
+                COALESCE(last_pay_period_endDate,       '9999-12-31'),
+                COALESCE(paycycle_closed_at,            '9999-12-31'),
+                COALESCE(last_pay_period_submitByDate,  '9999-12-31')
+            ) AS deduction_comparison_date,
+            GREATEST(
+                COALESCE(last_pay_period_endDate,       '2026-01-01'),
+                COALESCE(paycycle_closed_at,            '2026-01-01'),
+                COALESCE(last_pay_period_submitByDate,  '2026-01-01')
+            ) AS next_deduction_comparison_date
+        FROM pay_period_details pd
+    )
+    
+    SELECT
+        c.*,
+        CASE deduction_comparison_date
+            WHEN DATE '9999-12-31'                  THEN 'NONE'
+            WHEN last_pay_period_endDate            THEN 'last_pay_period_endDate'
+            WHEN paycycle_closed_at                 THEN 'last_paycycle_closed_at'
+            WHEN last_pay_period_submitByDate       THEN 'last_pay_period_submitByDate'
+        END AS date_selection_reason,
+    
+        CASE next_deduction_comparison_date
+            WHEN DATE '2026-01-01'                  THEN 'NONE'
+            WHEN last_pay_period_endDate            THEN 'last_pay_period_endDate'
+            WHEN paycycle_closed_at                 THEN 'last_paycycle_closed_at'
+            WHEN last_pay_period_submitByDate       THEN 'last_pay_period_submitByDate'
+        END AS next_deduction_date_selection_reason
+    FROM with_comparison_dates c
     ) last_pay_run_status on em.id = last_pay_run_status.employee_manifest_id
 
 -- get the most recent paycycle date closed for the employer
@@ -234,22 +245,13 @@ where em.employer_id = 227 and em.customer_id is not null )
 select *,
 
 TIMESTAMPDIFF(HOUR, deduction_comparison_date,first_pay_component_deduction_sent) as hours_between_component_send_and_deduction_comparison_date,
+
+case when first_pay_component_deduction_sent > next_deduction_comparison_date -- check if deduction happened after our last-known comparison date
+    then  first_pay_component_deduction_sent + interval pay_frequency_cycle_days day
+  else next_deduction_comparison_date + interval pay_frequency_cycle_days day 
   
-case deduction_comparison_date
-    when '9999-12-31'    then 'NONE'
-    when last_pay_period_endDate    then 'last_pay_period_endDate'
-    when paycycle_closed_at       then 'last_paycycle_closed_at'
-    when last_pay_period_submitByDate then 'last_pay_period_submitByDate'
-  end as date_selection_reason,
-
-next_deduction_comparison_date + interval pay_frequency_cycle_days day as next_expected_deduction_date,
-
-case next_deduction_comparison_date
-    when '2026-01-01'    then 'NONE'
-    when last_pay_period_endDate    then 'last_pay_period_endDate'
-    when paycycle_closed_at       then 'last_paycycle_closed_at'
-    when last_pay_period_submitByDate then 'last_pay_period_submitByDate'
-  end as next_deduction_date_selection_reason,  
+end as next_expected_deduction_date,
+  
 case 
   when first_pay_component_deduction_sent is null then 'No First Deduction Found'
   else 'First Deduction Sent'
