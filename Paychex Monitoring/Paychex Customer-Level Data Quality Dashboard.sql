@@ -54,7 +54,21 @@ select
   last_company_run_by_paycycle.company_last_scheduled_check_cycle,
   last_company_run_by_paycycle.company_last_completed_check_cycle,
   last_company_run_by_paycycle.company_last_webhook,
-  cs.paychex_research_notes
+  cs.paychex_research_notes,
+  datediff(sysdate(),last_pay_date) as days_since_last_check,
+  datediff(sysdate(),last_pay_date) / pay_frequency_cycle_days as cycles_since_last_check,
+  
+
+  date(case when first_pay_component_deduction_sent > next_deduction_comparison_date -- check if deduction happened after our last-known comparison date
+      then  first_pay_component_deduction_sent + interval pay_frequency_cycle_days day
+    else next_deduction_comparison_date + interval pay_frequency_cycle_days day
+  end) as next_expected_deduction_date,
+  
+  case when first_pay_component_deduction_sent > next_deduction_comparison_date -- check if deduction happened after our last-known comparison date
+      then  'Deduction after last known paystub data - used deduction + offset'
+    else 'Used last known paystub + offset'
+  end as next_expected_deduction_date_reason
+  
   
 from bme.employee_manifest em
   left join bme.employer_department ed on ed.department_prefix = em.company_code and ed.employer_id = em.employer_id
@@ -240,35 +254,42 @@ from bme.employee_manifest em
  
 
 -- Overall Filters for whole query
-where em.employer_id = 227 and em.customer_id is not null )
+where em.employer_id = 227 and em.customer_id is not null 
+)
 
 select *,
-
 TIMESTAMPDIFF(HOUR, deduction_comparison_date,first_pay_component_deduction_sent) as hours_between_component_send_and_deduction_comparison_date,
-
-case when first_pay_component_deduction_sent > next_deduction_comparison_date -- check if deduction happened after our last-known comparison date
-    then  first_pay_component_deduction_sent + interval pay_frequency_cycle_days day
-  else next_deduction_comparison_date + interval pay_frequency_cycle_days day
-end as next_expected_deduction_date,
-
-case when first_pay_component_deduction_sent > next_deduction_comparison_date -- check if deduction happened after our last-known comparison date
-    then  'Deduction after last known paystub data - used deduction + offset'
-  else 'Used last known paystub + offset'
-end as next_expected_deduction_date_reason,
-  
 case 
   when first_pay_component_deduction_sent is null then 'No First Deduction Found'
   else 'First Deduction Sent'
 end as first_deduction_status,
   
-case 
+case
+
+    -- Categories to stop evaluating others (handle these first):
     when connection_status = 'disconnected' then 'company disconnected'
     when employment_status = 'Terminated' then 'employee terminated'
     when is_blocked = 'blocked' then 'blocked'
     when first_pay_date_with_deduction is not null then 'at least one deduction received (paystub)'
     when paid_payroll_deduction_amt > 0 then 'at least one deduction received (ledger)'
-    when first_pay_component_deduction_sent is null then 'No Pay Component Found Sent to Paychex'    
+    when first_pay_component_deduction_sent is null then 'No Pay Component Found Sent to Paychex'
     when first_pay_date is null then 'no paystubs found for employee'
+
+    when (date_selection_reason != 'NONE' and first_pay_component_deduction_sent < (deduction_comparison_date - interval 1 day))
+      then 'Deduction Sucessfully Submitted 24 Hours Before Cutoff - Research Issue'
+
+    when next_expected_deduction_date < date(sysdate())
+      then 'First Expected Deduction Date has Passed - Research Issue' 
+
+    when next_expected_deduction_date >= date(sysdate()) and cycles_since_last_check > 2
+      then 'First Expected Deduction Date in the Future: 2 cycles since paycheck'
+
+    when next_expected_deduction_date >= date(sysdate()) and cycles_since_last_check > 1
+      then 'First Expected Deduction Date in the Future: 1 cycles since paycheck'
+
+    when next_expected_deduction_date >= date(sysdate()) and cycles_since_last_check >= -1 -- have cases where we get "payroll" dates in the future, or have to handle for weekends
+        then 'First Expected Deduction Date in the Future: in active cycle'  
+  
     when last_pay_date < date(sysdate() - INTERVAL 33 day) then 'employee not paid - no paystub for over 1 month'
     -- when paycycle_closed_at is null then 'No Found Payroll Completion Date for Employee'
     when first_pay_component_deduction_sent > deduction_comparison_date 
@@ -280,6 +301,8 @@ case
         then 'Deduction sent after Earliest PayDate, Submit Date, or Close Date: Still Expected'
   
     when first_pay_component_deduction_sent > last_pay_period_endDate then 'Pay component sent after last pay period end date'
+
+  
     when TIMESTAMPDIFF(HOUR, deduction_comparison_date,first_pay_component_deduction_sent) between -24 and 0 then 'Deduction submitted within 24 hours of deduction send cutoff'
     when TIMESTAMPDIFF(HOUR, deduction_comparison_date,first_pay_component_deduction_sent) < -24 then 'Deduction submitted more than 24 hours before deduction send cutoff'
     -- when hours_between_component_send_and_payroll_close between -24 and 0 then 'Deduction submitted within 24 hours of pay-cycle cutoff'
