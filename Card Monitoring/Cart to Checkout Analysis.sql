@@ -9,6 +9,7 @@ select
   qi.cart_total,
   so.entity_id as sales_order_id,
   so.subtotal_incl_tax,
+  so.created_at as sales_order_created,
   checkout_attempts.first_checkout,
   checkout_attempts.last_checkout,
   cards_attempted,
@@ -109,6 +110,7 @@ from
 where
   q.created_at >= '2026-05-04' -- sysdate() - interval 24 hour
   and q.customer_id is not null
+  and q.is_active = 1
 
 )
 select core.*,
@@ -121,7 +123,7 @@ select core.*,
   cs.first_order,
   case 
     when sales_order_id is not null and first_checkout is null then 'Checked Out - but no Session Log?'
-    when first_checkout is null then 'Have not checked out yet'
+    when first_checkout is null then 'Have not checked out yet'  
     when card_approved = 'Yes' and errors_encountered = 'No Errors Encountered' then 'Checkout Successful, card approved, no errors'
     when card_approved = 'Yes' then 'Checkout Successful, card approved - but errors encountered'
     when cards_attempted > 0 then 'Card Attempted - failed to checkout'
