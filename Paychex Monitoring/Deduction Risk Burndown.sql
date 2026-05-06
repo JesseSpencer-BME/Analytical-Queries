@@ -38,7 +38,6 @@ with
         left join financials.v_paychex_customer_status pcs on dm3.customer_id = pcs.customer_id
       where
         created_at <= '2026-04-30 21:41:37'
-        and resolved_at is not null
   )
 select
   analysis.*,
