@@ -26,6 +26,9 @@ select
   ed.status as connection_status,
   em.employment_status,
   blocked.is_blocked,
+  past_due_amount,
+  open_balance,
+  past_due_days,  
   paid_payroll_deduction_amt,
   paid_payroll_deduction_dates,
   paid_via_card_voluntarily,
@@ -82,7 +85,10 @@ from bme.employee_manifest em
     count(1) as total_agreements,
     sum(total) as purchase_total,
     min(date_created) as first_purchase_date,
-    sum(payments) as paycycle_scheduled_payment
+    sum(payments) as paycycle_scheduled_payment,
+    sum(past_due_amount) as past_due_amount,
+    sum(balance) as open_balance,
+    max(past_due_days) as past_due_days
   from
     bme.agreements
   where
