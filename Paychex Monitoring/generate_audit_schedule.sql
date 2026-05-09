@@ -1,15 +1,8 @@
-with v_nums as (
-SELECT (t.n*100 + u.n*10 + o.n) AS n
-FROM (SELECT 0 n UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4
-      UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7) t
-CROSS JOIN (SELECT 0 n UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4
-            UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) u
-CROSS JOIN (SELECT 0 n UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4
-            UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) o  
+WITH v_nums AS (
+  SELECT seq AS n FROM seq_0_to_103
 ),
-agreements as (
-
-select
+agreements AS (
+  select
   a.customer_id,
   a.id as agreement_id,
   a.term,
@@ -18,14 +11,12 @@ select
   em.pay_frequency,
   a.total as total_amount,
   (select min(pay_date) from bme.employee_paystubs where employee_manifest_id = em.id and pay_date > a.date_created) as first_pay_date,
-  (select max(pay_date) from bme.employee_paystubs where employee_manifest_id = em.id and pay_date <= a.date_created) as most_recent_pay_date
-  
+  (select max(pay_date) from bme.employee_paystubs where employee_manifest_id = em.id and pay_date <= a.date_created) as most_recent_pay_date  
 from
   bme.agreements a
   inner join bme.employee_manifest em on a.customer_id = em.customer_id
 where
   a.employer_id = 227
-  
 ),
 base AS (
   SELECT
@@ -38,26 +29,16 @@ base AS (
     a.most_recent_pay_date,
     a.total_amount,
     pft.num_periods,
+    pft.approx_pay_cycle_days,
     COALESCE(
       a.first_pay_date,
-      DATE_ADD(a.most_recent_pay_date,
-               INTERVAL (CASE a.pay_frequency
-                           WHEN 'Weekly' THEN 7 WHEN 'Bi-Weekly' THEN 14
-                           WHEN 'Semi-Monthly' THEN 15 WHEN 'Monthly' THEN 30
-                         END) DAY),
-      DATE_ADD(a.date_created,
-               INTERVAL (CASE a.pay_frequency
-                           WHEN 'Weekly' THEN 7 WHEN 'Bi-Weekly' THEN 14
-                           WHEN 'Semi-Monthly' THEN 15 WHEN 'Monthly' THEN 30
-                         END) DAY)
+      DATE_ADD(a.most_recent_pay_date, INTERVAL pft.approx_pay_cycle_days DAY),
+      DATE_ADD(a.date_created,        INTERVAL pft.approx_pay_cycle_days DAY)
     ) AS anchor_date,
-    -- per-installment amount in pennies, rounded down
     FLOOR(a.total_amount * 100 / pft.num_periods) / 100 AS base_amount,
-    -- pennies left over, all dumped into the final installment
     (ROUND(a.total_amount * 100, 0)
        - FLOOR(a.total_amount * 100 / pft.num_periods) * pft.num_periods) / 100
        AS remainder_amount,
-    -- per-row diagnostics, NULL components dropped automatically by CONCAT_WS
     CONCAT_WS('; ',
       CASE
         WHEN a.first_pay_date       IS NOT NULL THEN 'anchor=first_pay_date'
