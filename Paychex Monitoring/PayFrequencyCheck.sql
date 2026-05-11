@@ -4,6 +4,7 @@ from bme.employee_paystubs ep
   inner join bme.employee_manifest em
     on ep.employee_manifest_id = em.id  
 where employer_id = 227
+  and pay_date >= '2026-01-01'
  -- and employee_manifest_id = 1676975
 ),
 ordered AS (
@@ -62,13 +63,19 @@ SELECT
   gs.min_gap, m.modal_gap, gs.avg_gap, gs.max_gap, gs.sd_gap,
   s.distinct_dom,
   ROUND(s.n_paystubs / NULLIF(s.span_days, 0) * 365, 1) AS implied_per_year,
-  CASE
-    WHEN m.modal_gap BETWEEN 6 AND 8                                  THEN 'Weekly'
-    WHEN m.modal_gap BETWEEN 13 AND 16 AND s.distinct_dom <= 3        THEN 'Semi-Monthly'
-    WHEN m.modal_gap BETWEEN 13 AND 15 AND gs.sd_gap < 2              THEN 'Bi-Weekly'
-    WHEN m.modal_gap BETWEEN 27 AND 32                                THEN 'Monthly'
-    ELSE 'Unknown'
-  END                                            AS pay_frequency_inferred,
+ CASE
+  WHEN n_paystubs <  OR modal_gap IS NULL              THEN 'Insufficient'
+  WHEN modal_gap BETWEEN 6 AND 8                        THEN 'Weekly'
+  WHEN modal_gap BETWEEN 13 AND 16 THEN
+    CASE
+      WHEN max_gap < 15                                THEN 'Bi-Weekly'
+      WHEN distinct_dom <= 12 AND n_paystubs >= 8       THEN 'Semi-Monthly'
+      WHEN distinct_dom > 12                            THEN 'Bi-Weekly'
+      ELSE 'Ambiguous'
+    END
+  WHEN modal_gap BETWEEN 27 AND 35                      THEN 'Monthly'
+  ELSE 'Unknown'
+END AS pay_frequency_inferred,
   e.pay_frequency as pay_frequency_actual,
   CASE
     WHEN s.n_paystubs < 4 THEN 'INSUFFICIENT_DATA'
@@ -84,4 +91,3 @@ where
   and ces.total_orders > 0
   -- and e.id = 1676975
   ORDER BY e.id
-
