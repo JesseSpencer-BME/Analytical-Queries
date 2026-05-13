@@ -33,10 +33,11 @@ with
       bme.ledger l
       inner join bme.agreements a on l.agreement_id = a.id
       inner join bme.employee_manifest em on a.customer_id = em.customer_id
+      inner join financials.ledger_status_attributes lsa on l.status = lsa.status
     where
-      a.employer_id = 227
-      and l.status like '%paid%'
+      a.employer_id = 227      
       and l.cancelled_at is null
+      and lsa.count_as_payment = 'Yes' -- Only keep the statuses which count as payments
     group by
       l.agreement_id
   )
