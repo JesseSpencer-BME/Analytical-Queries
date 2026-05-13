@@ -28,7 +28,7 @@ select
   blocked.is_blocked,
   past_due_amount,
   open_balance,
-  past_due_days,  
+  case when past_due_days > 0 then past_due_days end as past_due_days,  
   paid_payroll_deduction_amt,
   paid_payroll_deduction_dates,
   paid_via_card_voluntarily,
@@ -60,6 +60,7 @@ select
   cs.paychex_research_notes,
   datediff(sysdate(),last_pay_date) as days_since_last_check,
   datediff(sysdate(),last_pay_date) / pay_frequency_cycle_days as cycles_since_last_check,
+  model_past_due.past_due_balance_modelled,
   
 
   date(case when first_pay_component_deduction_sent > next_deduction_comparison_date -- check if deduction happened after our last-known comparison date
@@ -257,6 +258,53 @@ from bme.employee_manifest em
         JSON_VALUE(cp.raw_data, '$.description')
     ) last_company_run_by_paycycle on em.company_code = last_company_run_by_paycycle.company_id
       and last_pay_run_status.last_pay_description = last_company_run_by_paycycle.pay_description
+
+  left join
+  -- Get "modelled" past-due
+  (
+    with 
+    
+      -- Schedules
+    schedule_amount as (
+    select
+      a.customer_id,
+      sum(amount) as expected_amount
+    from
+      financials.v_paychex_schedule_audit s -- temp_schedule
+      inner join bme.agreements a on s.agreement_id = a.id
+      where schedule_date < date(sysdate())
+    group by a.customer_id
+    ),
+    
+    -- Paid amount
+    paid_amount as 
+      (
+    select
+      a.customer_id,
+      sum(l.amount) as paid
+    from
+      bme.ledger l
+      inner join bme.agreements a on l.agreement_id = a.id
+      inner join bme.employee_manifest em on a.customer_id = em.customer_id
+    where
+      a.employer_id = 227
+      and l.status like '%paid%'
+      and l.cancelled_at is null
+    group by a.customer_id
+      )
+    select 
+      s.customer_id,
+      round(expected_amount,0) as expected_amount,
+      round(paid,0) as paid_amount,
+      case 
+        when round(expected_amount + coalesce(paid,0),0) > 0 then 
+        round(expected_amount + coalesce(paid,0),0) 
+      else 0
+      end as past_due_balance_modelled  
+       from schedule_amount s
+    left join paid_amount p 
+      on s.customer_id = p.customer_id
+  ) model_past_due on em.customer_id = model_past_due.customer_id
  
 
 -- Overall Filters for whole query
@@ -264,7 +312,14 @@ where em.employer_id = 227 and em.customer_id is not null
 )
 
 select *,
+1 as total_customer_count,
 TIMESTAMPDIFF(HOUR, deduction_comparison_date,first_pay_component_deduction_sent) as hours_between_component_send_and_deduction_comparison_date,
+
+case when past_due_amount> 0 then 1 else 0 end as customer_past_due_count,
+case when past_due_amount> 0 then open_balance end as past_due_open_balance,
+case when past_due_amount> 0 then purchase_total end as past_due_purchase_total,
+  
+
 case 
   when first_pay_component_deduction_sent is null then 'No First Deduction Found'
   else 'First Deduction Sent'
