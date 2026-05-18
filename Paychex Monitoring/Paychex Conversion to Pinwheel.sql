@@ -24,7 +24,8 @@ where
 
 select 
   dpe.*, 
-  c.employer_id, 
+  c.employer_id,
+  case when (c.created_in = 'Paychex' and c.employer_id =204) then 'Successful Conversion' end as conversion_status,
   case when num_agreements > 0 then 'Had Agreements' else 'No Agreements' end as has_agreements,
   pinwheel_data.*,
   a.*  
