@@ -24,8 +24,12 @@ select
   first_pay_date_with_deduction,
   last_pay_date_with_deduction,
   ed.status as connection_status,
+  ed.employer_disconnect_date,
   em.employment_status,
-  blocked.is_blocked,
+  case when 
+    em.employment_status = 'blocked' then 'blocked'
+    else null
+  end as is_blocked,
   past_due_amount,
   open_balance,
   case when past_due_days > 0 then past_due_days end as past_due_days,  
@@ -75,9 +79,38 @@ select
   
   
 from bme.employee_manifest em
-  left join bme.employer_department ed on ed.department_prefix = em.company_code and ed.employer_id = em.employer_id
   left join bme.customer_entity c on em.customer_id = c.entity_id
   left join financials.customer_supplemental cs on em.customer_id = cs.customer_id
+
+  -- Employer Disconnect Data
+  left join (
+      select
+      ed.entity_id as employee_department_id,
+      ed.department_prefix,
+      ed.employer_id,
+      ed.status,
+      ed.updated_at,
+      first_disconnect.first_disconnect,
+      datediff(ed.updated_at, first_disconnect.first_disconnect),
+      coalesce(first_disconnect.first_disconnect,ed.updated_at) as employer_disconnect_date
+    from
+      bme.employer_department ed
+      left join (
+        select
+          department_prefix,
+          min(created_at) as first_disconnect
+        from
+          bme.employer_department_history
+        where
+          status = 'disconnected'
+        group by
+          department_prefix
+      ) first_disconnect on ed.department_prefix = first_disconnect.department_prefix
+    where
+      ed.employer_id = 227
+      and ed.status = 'disconnected'      
+    ) ed on ed.department_prefix = em.company_code and ed.employer_id = em.employer_id
+
   
   -- All agreements
   inner join (
