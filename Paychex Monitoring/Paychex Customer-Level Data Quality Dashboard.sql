@@ -66,6 +66,8 @@ select
   datediff(sysdate(),last_pay_date) as days_since_last_check,
   datediff(sysdate(),last_pay_date) / pay_frequency_cycle_days as cycles_since_last_check,
   model_past_due.past_due_balance_modelled,
+  after_termination.most_recent_purchase,
+  after_termination.term_to_order_gap,
 
   case when ed.employer_disconnect_date is not null then ed.employer_disconnect_date else em.termination_date end as last_active_date,  
 
@@ -77,7 +79,9 @@ select
   case when first_pay_component_deduction_sent > next_deduction_comparison_date -- check if deduction happened after our last-known comparison date
       then  'Deduction after last known paystub data - used deduction + offset'
     else 'Used last known paystub + offset'
-  end as next_expected_deduction_date_reason
+  end as next_expected_deduction_date_reason,
+
+  employee_notes.notes
   
   
 from bme.employee_manifest em
@@ -340,6 +344,39 @@ from bme.employee_manifest em
     left join paid_amount p 
       on s.customer_id = p.customer_id
   ) model_past_due on em.customer_id = model_past_due.customer_id
+
+-- Ordered AFTER termination
+left join 
+    (
+  select 
+    em.id as employee_manifest_id,
+    em.customer_id,
+    em.termination_date,
+    last_order.most_recent_purchase,
+    em.employer_id,
+    e.name as employer_name,
+    datediff(last_order.most_recent_purchase,em.termination_date) as term_to_order_gap,
+    em.pay_frequency
+  from bme.employee_manifest em
+  inner join bme.employer e on em.employer_id = e.employer_id
+  inner join (
+    select customer_id, max(sale_date) as most_recent_purchase from bme.agreements
+      where status not in ('cancelled')
+    group by customer_id 
+  ) last_order
+    on em.customer_id = last_order.customer_id
+  where em.employment_status = 'terminated'
+    and last_order.most_recent_purchase > em.termination_date
+    and em.employer_id = 227
+  order by most_recent_purchase desc
+  ) after_termination on em.customer_id = after_termination.customer_id
+
+-- Employee Notes
+left join (
+  select customer_id, group_concat(note_text) as notes from callcenter.notes
+  where agent_id = 31
+  group by customer_id
+  ) employee_notes on em.customer_id = employee_notes.customer_id
 
 -- Overall Filters for whole query
 where em.employer_id = 227 and em.customer_id is not null 
