@@ -26,6 +26,7 @@ select
   ed.status as connection_status,
   ed.employer_disconnect_date,
   em.employment_status,
+  em.termination_date,
   case when 
     em.employment_status = 'blocked' then 'blocked'
     else null
@@ -65,7 +66,8 @@ select
   datediff(sysdate(),last_pay_date) as days_since_last_check,
   datediff(sysdate(),last_pay_date) / pay_frequency_cycle_days as cycles_since_last_check,
   model_past_due.past_due_balance_modelled,
-  
+
+  case when ed.employer_disconnect_date is not null then ed.employer_disconnect_date else em.termination_date end as last_active_date,  
 
   date(case when first_pay_component_deduction_sent > next_deduction_comparison_date -- check if deduction happened after our last-known comparison date
       then  first_pay_component_deduction_sent + interval pay_frequency_cycle_days day
@@ -338,7 +340,6 @@ from bme.employee_manifest em
     left join paid_amount p 
       on s.customer_id = p.customer_id
   ) model_past_due on em.customer_id = model_past_due.customer_id
- 
 
 -- Overall Filters for whole query
 where em.employer_id = 227 and em.customer_id is not null 
@@ -347,6 +348,10 @@ where em.employer_id = 227 and em.customer_id is not null
 select *,
 1 as total_customer_count,
 TIMESTAMPDIFF(HOUR, deduction_comparison_date,first_pay_component_deduction_sent) as hours_between_component_send_and_deduction_comparison_date,
+
+
+floor(last_active_date / pay_frequency_cycle_days) as cycles_since_last_active,
+
 
 case when past_due_amount> 0 then 1 else 0 end as customer_past_due_count,
 case when past_due_amount> 0 then open_balance end as past_due_open_balance,
