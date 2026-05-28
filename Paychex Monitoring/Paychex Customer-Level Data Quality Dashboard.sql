@@ -350,7 +350,7 @@ select *,
 TIMESTAMPDIFF(HOUR, deduction_comparison_date,first_pay_component_deduction_sent) as hours_between_component_send_and_deduction_comparison_date,
 
 
-floor(last_active_date / pay_frequency_cycle_days) as cycles_since_last_active,
+floor((to_days(sysdate()) - to_days(last_active_date)) / pay_frequency_cycle_days) as cycles_since_last_active,
 
 
 case when past_due_amount> 0 then 1 else 0 end as customer_past_due_count,
