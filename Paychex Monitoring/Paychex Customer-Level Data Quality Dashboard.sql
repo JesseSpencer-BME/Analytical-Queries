@@ -28,7 +28,7 @@ select
   em.employment_status,
   em.termination_date,
   case when 
-    em.employment_status = 'blocked' then 'blocked'
+    c.deduction_code_blocked = '1' then 'blocked'
     else null
   end as is_blocked,
   past_due_amount,
@@ -152,7 +152,9 @@ from bme.employee_manifest em
       employers.customer_pay_components
     group by
       worker_id
-  ) fd on em.employee_id = fd.worker_id
+  -- COLLATION FIX 1: bme.employee_manifest.employee_id (utf8mb4_general_ci)
+  --   vs employers.customer_pay_components.worker_id (utf8mb4_unicode_ci)
+  ) fd on em.employee_id COLLATE utf8mb4_unicode_ci = fd.worker_id
 
   -- Get all Paystubs with deductions
   left join (
@@ -243,8 +245,10 @@ from bme.employee_manifest em
             DATE(STR_TO_DATE(JSON_VALUE(cp.raw_data, '$.endDate'),       '%Y-%m-%dT%H:%i:%sZ')) AS last_pay_period_endDate,
             DATE(STR_TO_DATE(JSON_VALUE(cp.raw_data, '$.submitByDate'),  '%Y-%m-%dT%H:%i:%sZ')) AS last_pay_period_submitByDate
         FROM last_paystub_per_employee lp
+        -- COLLATION FIX 2 (pre-emptive): JSON_VALUE-derived pay_period_id
+        --   vs employers.company_payperiods.pay_period_id (utf8mb4_unicode_ci)
         LEFT JOIN employers.company_payperiods cp
-            ON lp.pay_period_id = cp.pay_period_id
+            ON lp.pay_period_id COLLATE utf8mb4_unicode_ci = cp.pay_period_id
         WHERE lp.rn = 1
     ),
     
@@ -295,7 +299,11 @@ from bme.employee_manifest em
       group by
         company_id,
         JSON_VALUE(cp.raw_data, '$.description')
-    ) last_company_run_by_paycycle on em.company_code = last_company_run_by_paycycle.company_id
+    -- COLLATION FIX 3: bme.employee_manifest.company_code (utf8mb4_general_ci)
+    --   vs employers.company_payperiods.company_id (utf8mb4_unicode_ci).
+    --   The last_pay_description = pay_description side is JSON-vs-JSON from the
+    --   same employers.raw_data source, so it needs no fix.
+    ) last_company_run_by_paycycle on em.company_code COLLATE utf8mb4_unicode_ci = last_company_run_by_paycycle.company_id
       and last_pay_run_status.last_pay_description = last_company_run_by_paycycle.pay_description
 
   left join
