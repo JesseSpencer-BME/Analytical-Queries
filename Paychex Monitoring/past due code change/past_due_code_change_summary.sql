@@ -52,6 +52,42 @@ immutability as (
     inner join bme.employer e on a.employer_id = e.employer_id
     where l.status = 'Origination'
   group by l.agreement_id
+),
+schedule_exceptions as (
+    select 
+      current_gaps.customer_id, 
+      current_gaps.agreement_id, 
+      current_gaps.magento_order_number, 
+      group_concat(concat(transaction_date,' -',prior_date) separator ' | ') as compressed_schedules from (
+    
+    with basis as (
+    select
+      l.id,
+      l.agreement_id,
+      a.magento_order_number,
+      a.customer_id,
+      l.transaction_date,
+      lag(
+        transaction_date) over
+        (partition by
+          agreement_id
+        order by
+          transaction_date asc
+      ) as prior_date
+    from
+      bme.ledger l
+      inner join bme.agreements a on l.agreement_id = a.id
+    where
+      l.cancelled_at is null
+      and l.status = 'scheduled'
+      and a.employer_id = 227
+    ), analysis as (
+    select b.*, datediff(transaction_date,prior_date) as date_gap from basis b  
+    )
+    select * from analysis where date_gap <= 3
+      and transaction_date <= date(sysdate())
+      ) current_gaps
+    group by current_gaps.agreement_id  
 )
 select
   c.agreement_id,
@@ -68,13 +104,17 @@ select
   ad.last_payment,
   ad.first_schedule,
   dv.variance as deduction_variance,
-  case when i.ledger_creation_date > immutable_at then 'Created After Immutability' else 'Created Before Immutability' end as immutability_flag
+  case when i.ledger_creation_date > immutable_at then 'Created After Immutability' else 'Created Before Immutability' end as immutability_flag,
+  le.message as ledger_exception_message,
+  se.compressed_schedules
 from
   core_model c
   left join bme.agreements a on c.agreement_id = a.id
   left join agreement_dates ad on c.agreement_id = ad.agreement_id
   left join financials.v_paychex_agreement_deduction_variances dv on c.agreement_id = dv.agreement_id
-  left join immutability i on a.id = i.agreement_id 
+  left join immutability i on a.id = i.agreement_id
+  left join financials.v_ledger_exceptions le on c.agreement_id = le.agreement_id
+  left join schedule_exceptions se on c.agreement_id = se.agreement_id
 where
   past_due_timeframe = 'current'
 group by
