@@ -16,7 +16,7 @@ with base as (
   where
     a.employer_id = 227
     and l.status = 'scheduled'
-    and l.transaction_date < date(sysdate())
+    and l.transaction_date < date(CONVERT_TZ(sysdate(), 'UTC', 'America/Chicago'))
     and l.cancelled_at is null
     and a.payments - amount > 1
     and a.status not in ('Paid Off','Cancelled')
@@ -51,7 +51,7 @@ ledger_less_than_schedule as (
     where
       a.employer_id = 227
       and l.status = 'scheduled'
-      and l.transaction_date < date(sysdate())
+      and l.transaction_date < date(CONVERT_TZ(sysdate(), 'UTC', 'America/Chicago'))
       and l.cancelled_at is null
       and a.payments - amount > 1
     )
@@ -88,7 +88,7 @@ schedule_gaps as (
   inner join bme.employee_manifest em on a.customer_id = em.customer_id
   left join pay_frequency_terms pft on a.term = pft.term and em.pay_frequency = pft.pay_frequency
   where date_gap > (approx_pay_cycle_days + 3)
-    and transaction_date < date(sysdate())
+    and transaction_date < date(CONVERT_TZ(sysdate(), 'UTC', 'America/Chicago'))
     )
   select agreement_id, group_concat(concat(prior_date,'-',transaction_date,' (',date_gap,')') separator ' | ') as schedule_gap_list from paycycle_anomalies
   group by agreement_id
@@ -133,7 +133,7 @@ duplicated_schedules as (
       select 
           CONCAT('<a href="', url, '">', 'link', '</a>') as link,
           analysis.* from analysis where date_gap <= 3
-        and transaction_date <= date(sysdate())
+        and transaction_date <= date(CONVERT_TZ(sysdate(), 'UTC', 'America/Chicago'))
         ) current_gaps
       group by current_gaps.agreement_id  
 ), 
