@@ -16,7 +16,7 @@ with base as (
   where
     a.employer_id = 227
     and l.status = 'scheduled'
-    and l.transaction_date < date(CONVERT_TZ(sysdate(), 'UTC', 'America/Chicago'))
+    and l.transaction_date < date(CONVERT_TZ(sysdate(), 'UTC', 'America/Chicago')) + interval 2 day
     and l.cancelled_at is null
     and a.payments - amount > 1
     and a.status not in ('Paid Off','Cancelled')
@@ -51,7 +51,7 @@ ledger_less_than_schedule as (
     where
       a.employer_id = 227
       and l.status = 'scheduled'
-      and l.transaction_date < date(CONVERT_TZ(sysdate(), 'UTC', 'America/Chicago'))
+      and l.transaction_date < date(CONVERT_TZ(sysdate(), 'UTC', 'America/Chicago')) + interval 2 day
       and l.cancelled_at is null
       and a.payments - amount > 1
     )
@@ -88,7 +88,7 @@ schedule_gaps as (
   inner join bme.employee_manifest em on a.customer_id = em.customer_id
   left join pay_frequency_terms pft on a.term = pft.term and em.pay_frequency = pft.pay_frequency
   where date_gap > (approx_pay_cycle_days + 3)
-    and transaction_date < date(CONVERT_TZ(sysdate(), 'UTC', 'America/Chicago'))
+    and transaction_date < date(CONVERT_TZ(sysdate(), 'UTC', 'America/Chicago')) + interval 2 day
     )
   select agreement_id, group_concat(concat(prior_date,'-',transaction_date,' (',date_gap,')') separator ' | ') as schedule_gap_list from paycycle_anomalies
   group by agreement_id
@@ -133,7 +133,7 @@ duplicated_schedules as (
       select 
           CONCAT('<a href="', url, '">', 'link', '</a>') as link,
           analysis.* from analysis where date_gap <= 3
-        and transaction_date <= date(CONVERT_TZ(sysdate(), 'UTC', 'America/Chicago'))
+        and transaction_date <= date(CONVERT_TZ(sysdate(), 'UTC', 'America/Chicago')) + interval 2 day
         ) current_gaps
       group by current_gaps.agreement_id  
 ), 
@@ -179,11 +179,11 @@ select a.*,
 case 
   when schedule_alignment_assessment = 'Schedules Agree' then 'Schedules Agree'
   when agreement_open_status = 'agreement_paid_off' then 'Agreement is fully paid off'
-  when has_discount = "Had Discount" then "Agreement had discount"
-  when has_schedule_payment_variance = 'Has Scheduled Payment Variance' then 'Has scheduled payment variance'
   when pay_frequency_matches = "Pay frequencies don't match" then "Pay frequencies don't match"
-  when has_return = "Return Made" then "Agreement had return"  
+  when has_discount = "Had Discount" then "Agreement had discount"
+  when has_schedule_payment_variance = 'Has Scheduled Payment Variance' then 'Has scheduled payment variance'    
   when has_schedule_gap = 'Has missing schedule gap' then 'Has missing schedule gap'  
+  when has_return = "Return Made" then "Agreement had return"
   else 'Schedule mismatch - no known error'
 end as primary_error 
   from analysis a
