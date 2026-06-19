@@ -29,6 +29,7 @@ select b.*,
   from base b
   order by  pct_of_schedule asc
 ), 
+#-------------------------------------------
 returns as (
   select agreement_id, round(sum(amount),2) as return_amount
     from bme.ledger
@@ -36,7 +37,63 @@ returns as (
     and cancelled_at is null
   group by agreement_id
   ),
-  
+#-------------------------------------------
+ledger_less_than_schedule as (
+    with sched_vars as (
+    select  
+      l.id as ledger_id,
+      l.agreement_id,
+      l.amount as ledger_amount,
+      a.payments as update_ledger_to_amount
+    from
+      bme.ledger l
+      inner join bme.agreements a on l.agreement_id = a.id
+    where
+      a.employer_id = 227
+      and l.status = 'scheduled'
+      and l.transaction_date < date(sysdate())
+      and l.cancelled_at is null
+      and a.payments - amount > 1
+    )
+    select agreement_id, sum(ledger_amount), sum(update_ledger_to_amount), sum(update_ledger_to_amount) - sum(ledger_amount) as ledger_less_than_schedule_update_amt
+    from sched_vars
+    group by agreement_id
+),
+#-------------------------------------------
+schedule_gaps as (
+  with basis as (
+  select
+          l.id,
+          l.agreement_id,
+          l.transaction_date,
+          lag(
+            transaction_date) over
+            (partition by
+              agreement_id
+            order by
+              transaction_date asc
+          ) as prior_date
+        from
+          bme.ledger l
+          inner join bme.agreements a on l.agreement_id = a.id
+        where
+          l.cancelled_at is null
+          and l.status = 'scheduled'
+          and a.employer_id = 227
+    ), date_gaps as (
+    select b.*, datediff(transaction_date,prior_date) as date_gap from basis b
+    ), paycycle_anomalies as (
+  select dg.*, approx_pay_cycle_days from date_gaps dg
+  inner join bme.agreements a on dg.agreement_id = a.id
+  inner join bme.employee_manifest em on a.customer_id = em.customer_id
+  left join pay_frequency_terms pft on a.term = pft.term and em.pay_frequency = pft.pay_frequency
+  where date_gap > (approx_pay_cycle_days + 3)
+    and transaction_date < date(sysdate())
+    )
+  select agreement_id, group_concat(concat(prior_date,'-',transaction_date,' (',date_gap,')') separator ' | ') as schedule_gap_list from paycycle_anomalies
+  group by agreement_id
+  ),
+#-------------------------------------------
 duplicated_schedules as (
 
   select 
@@ -79,7 +136,9 @@ duplicated_schedules as (
         and transaction_date <= date(sysdate())
         ) current_gaps
       group by current_gaps.agreement_id  
-), analysis as (
+), 
+#-------------------------------------------  
+analysis as (
 select 
   s.*, 
   sa.variance as variance_fixed_by_ledgers,
@@ -97,7 +156,11 @@ select
   spv.payments_per_agreement,
   spv.calc_payment_after_ip,
   spv.variance as scheduled_payment_variance,
-  case when spv.variance is not null then 'Has Scheduled Payment Variance' else 'No Schedule Payment Variance' end as has_schedule_payment_variance
+  case when spv.variance is not null then 'Has Scheduled Payment Variance' else 'No Schedule Payment Variance' end as has_schedule_payment_variance,
+  sg.schedule_gap_list,
+  case when schedule_gap_list is not null then 'Has missing schedule gap' else 'No missing pay schedules' end as has_schedule_gap,
+  lls.ledger_less_than_schedule_update_amt,
+  case when lls.ledger_less_than_schedule_update_amt is not null then 'Schedule Amount too Low - Update Required' else 'Schedule Amounts not too low' end as ledger_schedules_less_than_expected
   
 from financials.v_paychex_schedule_audit_v_ledger_schedule s
 left join schedule_adjustments sa on s.agreement_id = sa.agreement_id
@@ -108,15 +171,19 @@ left join bme.employee_manifest_order_log ol on a.order_id = ol.order_id
 left join returns r on s.agreement_id = r.agreement_id
 left join bme.sales_order so on a.order_id = so.entity_id
 left join financials.v_agreement_scheduled_payment_variances spv on s.agreement_id = spv.agreement_id
+left join schedule_gaps sg on s.agreement_id = sg.agreement_id
+left join ledger_less_than_schedule lls on s.agreement_id = lls.agreement_id
 )
+#-------------------------------------------
 select a.*,
 case 
   when schedule_alignment_assessment = 'Schedules Agree' then 'Schedules Agree'
   when agreement_open_status = 'agreement_paid_off' then 'Agreement is fully paid off'
-  when pay_frequency_matches = "Pay frequencies don't match" then "Pay frequencies don't match"
-  when has_return = "Return Made" then "Agreement had return"
   when has_discount = "Had Discount" then "Agreement had discount"
   when has_schedule_payment_variance = 'Has Scheduled Payment Variance' then 'Has scheduled payment variance'
+  when pay_frequency_matches = "Pay frequencies don't match" then "Pay frequencies don't match"
+  when has_return = "Return Made" then "Agreement had return"  
+  when has_schedule_gap = 'Has missing schedule gap' then 'Has missing schedule gap'  
   else 'Schedule mismatch - no known error'
 end as primary_error 
   from analysis a
