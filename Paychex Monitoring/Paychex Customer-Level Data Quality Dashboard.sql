@@ -3,6 +3,7 @@ with core_data as (
 select
   em.id,
   em.customer_id,
+  em.employer_id,
   employee_id,
   em.company_code,
   em.pay_frequency,
@@ -31,6 +32,7 @@ select
     c.deduction_code_blocked = '1' then 'blocked'
     else null
   end as is_blocked,
+  c.missing_last_paystub,
   case when past_due_amount > 0 then past_due_amount end as past_due_amount,
   case when past_due_amount < 0 then past_due_amount end as paid_ahead_amount,  
   open_balance,
@@ -384,7 +386,8 @@ left join (
   ) employee_notes on em.customer_id = employee_notes.customer_id
 
 -- Overall Filters for whole query
-where em.employer_id = 227 and em.customer_id is not null 
+where (em.employer_id = 227 and em.customer_id is not null)
+  or (em.employer_id = 204 and c.created_in = 'paychex')
 )
 
 select *,
@@ -411,6 +414,8 @@ case
     when connection_status = 'disconnected' then 'company disconnected'
     when employment_status = 'Terminated' then 'employee terminated'
     when is_blocked = 'blocked' then 'blocked'
+    when missing_last_paystub = 1 then 'missing last paystub'
+    when employer_id = 204 then 'converted to Pinwheel'
     when first_pay_date_with_deduction is not null then 'at least one deduction received (paystub)'
     when paid_payroll_deduction_amt > 0 then 'at least one deduction received (ledger)'
     when first_pay_component_deduction_sent is null then 'No Pay Component Found Sent to Paychex'
