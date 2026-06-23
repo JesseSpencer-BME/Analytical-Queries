@@ -386,7 +386,7 @@ left join (
   ) employee_notes on em.customer_id = employee_notes.customer_id
 
 -- Overall Filters for whole query
-where (em.employer_id in (227, 204) and em.customer_id is not null)
+where (em.employer_id = 227 and em.customer_id is not null)
   or (em.employer_id = 204 and c.created_in = 'paychex')
 )
 
