@@ -131,7 +131,7 @@ from bme.employee_manifest em
     sum(payments) + coalesce(sum(return_amount),0) as paycycle_scheduled_payment,
     sum(past_due_amount) as past_due_amount,
     sum(balance) as open_balance,
-    max(past_due_days) as past_due_days
+    max(case when past_due_amount > 0 then datediff(date(sysdate())-interval 1 day,past_due_since) end) as past_due_days
   from
     bme.agreements a
     left join (select agreement_id, sum(amount) as return_amount from bme.ledger where status = 'return' and cancelled_at is  null group by agreement_id) agreement_returns
