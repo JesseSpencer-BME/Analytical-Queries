@@ -31,7 +31,8 @@ select
     c.deduction_code_blocked = '1' then 'blocked'
     else null
   end as is_blocked,
-  past_due_amount,
+  case when past_due_amount > 0 then past_due_amount end as past_due_amount,
+  case when past_due_amount < 0 then past_due_amount end as paid_ahead_amount,  
   open_balance,
   case when past_due_days > 0 then past_due_days end as past_due_days,  
   paid_payroll_deduction_amt,
@@ -125,23 +126,25 @@ from bme.employee_manifest em
     count(1) as total_agreements,
     sum(total) as purchase_total,
     min(date_created) as first_purchase_date,
-    sum(payments) as paycycle_scheduled_payment,
+    sum(payments) + coalesce(sum(return_amount),0) as paycycle_scheduled_payment,
     sum(past_due_amount) as past_due_amount,
     sum(balance) as open_balance,
     max(past_due_days) as past_due_days
   from
-    bme.agreements
+    bme.agreements a
+    left join (select agreement_id, sum(amount) as return_amount from bme.ledger where status = 'return' and cancelled_at is  null group by agreement_id) agreement_returns
+      on a.id = agreement_returns.agreement_id
   where
     employer_id = 227
   group by customer_id
   ) customer_orders on em.customer_id = customer_orders.customer_id
 
   -- Blocked Employees
-  left join (
-    select distinct employee_manifest_id, 'blocked' as is_blocked from bme.employee_paystubs
-    where json_value(additional_data, '$.deductions[0].isBlocked') = '1'
-    and employee_manifest_id in (select id from bme.employee_manifest where employer_id = 227 and customer_id is not null)
-  ) blocked on em.id = blocked.employee_manifest_id
+  -- left join (
+  --   select distinct employee_manifest_id, 'blocked' as is_blocked from bme.employee_paystubs
+  --   where json_value(additional_data, '$.deductions[0].isBlocked') = '1'
+  --   and employee_manifest_id in (select id from bme.employee_manifest where employer_id = 227 and customer_id is not null)
+  -- ) blocked on em.id = blocked.employee_manifest_id
 
   -- Get first deduction date API'd to Paychex
   left join (
@@ -151,10 +154,8 @@ from bme.employee_manifest em
     from
       employers.customer_pay_components
     group by
-      worker_id
-  -- COLLATION FIX 1: bme.employee_manifest.employee_id (utf8mb4_general_ci)
-  --   vs employers.customer_pay_components.worker_id (utf8mb4_unicode_ci)
-  ) fd on em.employee_id COLLATE utf8mb4_unicode_ci = fd.worker_id
+      worker_id 
+  ) fd on em.employee_id = fd.worker_id
 
   -- Get all Paystubs with deductions
   left join (
@@ -245,10 +246,9 @@ from bme.employee_manifest em
             DATE(STR_TO_DATE(JSON_VALUE(cp.raw_data, '$.endDate'),       '%Y-%m-%dT%H:%i:%sZ')) AS last_pay_period_endDate,
             DATE(STR_TO_DATE(JSON_VALUE(cp.raw_data, '$.submitByDate'),  '%Y-%m-%dT%H:%i:%sZ')) AS last_pay_period_submitByDate
         FROM last_paystub_per_employee lp
-        -- COLLATION FIX 2 (pre-emptive): JSON_VALUE-derived pay_period_id
-        --   vs employers.company_payperiods.pay_period_id (utf8mb4_unicode_ci)
+
         LEFT JOIN employers.company_payperiods cp
-            ON lp.pay_period_id COLLATE utf8mb4_unicode_ci = cp.pay_period_id
+            ON lp.pay_period_id = cp.pay_period_id
         WHERE lp.rn = 1
     ),
     
@@ -299,11 +299,8 @@ from bme.employee_manifest em
       group by
         company_id,
         JSON_VALUE(cp.raw_data, '$.description')
-    -- COLLATION FIX 3: bme.employee_manifest.company_code (utf8mb4_general_ci)
-    --   vs employers.company_payperiods.company_id (utf8mb4_unicode_ci).
-    --   The last_pay_description = pay_description side is JSON-vs-JSON from the
-    --   same employers.raw_data source, so it needs no fix.
-    ) last_company_run_by_paycycle on em.company_code COLLATE utf8mb4_unicode_ci = last_company_run_by_paycycle.company_id
+
+    ) last_company_run_by_paycycle on em.company_code = last_company_run_by_paycycle.company_id
       and last_pay_run_status.last_pay_description = last_company_run_by_paycycle.pay_description
 
   left join
@@ -317,7 +314,7 @@ from bme.employee_manifest em
       a.customer_id,
       sum(amount) as expected_amount
     from
-      financials.v_paychex_schedule_audit s -- temp_schedule
+      financials.v_paychex_schedule_audit_ledger_basis s -- temp_schedule
       inner join bme.agreements a on s.agreement_id = a.id
       where schedule_date < date(sysdate())
     group by a.customer_id
