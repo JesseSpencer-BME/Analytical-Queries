@@ -116,7 +116,7 @@ from bme.employee_manifest em
           department_prefix
       ) first_disconnect on ed.department_prefix = first_disconnect.department_prefix
     where
-      ed.employer_id = 227
+      ed.employer_id in (227, 204)
       and ed.status = 'disconnected'      
     ) ed on ed.department_prefix = em.company_code and ed.employer_id = em.employer_id
 
@@ -137,7 +137,7 @@ from bme.employee_manifest em
     left join (select agreement_id, sum(amount) as return_amount from bme.ledger where status = 'return' and cancelled_at is  null group by agreement_id) agreement_returns
       on a.id = agreement_returns.agreement_id
   where
-    employer_id = 227
+    employer_id in (227, 204)
   group by customer_id
   ) customer_orders on em.customer_id = customer_orders.customer_id
 
@@ -145,7 +145,7 @@ from bme.employee_manifest em
   -- left join (
   --   select distinct employee_manifest_id, 'blocked' as is_blocked from bme.employee_paystubs
   --   where json_value(additional_data, '$.deductions[0].isBlocked') = '1'
-  --   and employee_manifest_id in (select id from bme.employee_manifest where employer_id = 227 and customer_id is not null)
+  --   and employee_manifest_id in (select id from bme.employee_manifest where employer_id in (227, 204) and customer_id is not null)
   -- ) blocked on em.id = blocked.employee_manifest_id
 
   -- Get first deduction date API'd to Paychex
@@ -175,7 +175,7 @@ from bme.employee_manifest em
         bme.employee_manifest em
         left join bme.employee_paystubs ep on em.id = ep.employee_manifest_id
       where
-        em.employer_id = 227
+        em.employer_id in (227, 204)
         and customer_id is not null
         and pay_date >= '2025-04-01'
       group by employee_manifest_id
@@ -195,7 +195,7 @@ from bme.employee_manifest em
         inner join bme.agreements a on l.agreement_id = a.id
       where
         l.cancelled_at is null
-        and a.employer_id = 227
+        and a.employer_id in (227, 204)
       group by
         customer_id  
   ) ledger_summary on em.customer_id = ledger_summary.customer_id
@@ -231,7 +231,7 @@ from bme.employee_manifest em
         INNER JOIN bme.agreements ag
             ON ag.customer_id = em.customer_id
             AND ag.employer_id = em.employer_id
-        WHERE em.employer_id = 227
+        WHERE em.employer_id in (227, 204)
     ),
     
     pay_period_details AS (
@@ -333,7 +333,7 @@ from bme.employee_manifest em
       inner join bme.agreements a on l.agreement_id = a.id
       inner join bme.employee_manifest em on a.customer_id = em.customer_id
     where
-      a.employer_id = 227
+      a.employer_id in (227, 204)
       and l.status like '%paid%'
       and l.cancelled_at is null
     group by a.customer_id
@@ -374,7 +374,7 @@ left join
     on em.customer_id = last_order.customer_id
   where em.employment_status = 'terminated'
     and last_order.most_recent_purchase > em.termination_date
-    and em.employer_id = 227
+    and em.employer_id in (227, 204)
   order by most_recent_purchase desc
   ) after_termination on em.customer_id = after_termination.customer_id
 
@@ -386,7 +386,7 @@ left join (
   ) employee_notes on em.customer_id = employee_notes.customer_id
 
 -- Overall Filters for whole query
-where (em.employer_id = 227 and em.customer_id is not null)
+where (em.employer_id in (227, 204) and em.customer_id is not null)
   or (em.employer_id = 204 and c.created_in = 'paychex')
 )
 
